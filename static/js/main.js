@@ -3,10 +3,18 @@ const DOMINO_API_BASE = window.location.origin + window.location.pathname.replac
 const ORIGINAL_API_BASE = window.DOMINO?.API_BASE || '';
 const API_KEY = window.DOMINO?.API_KEY || null;
 
+// Hardcoded policy IDs
+const POLICY_IDS = {
+    'External Model Upload': '42c9adf3-f233-470b-b186-107496d0eb05',
+    'AI Use Case Intake': '4a8da911-bb6b-480d-a5a9-9918550c741e'  // Using same ID for now, replace with actual second policy ID
+};
+
 // Global state
 let appState = {
     uploadedFiles: [],
-    formData: {}
+    formData: {},
+    policies: {},
+    selectedPolicy: null
 };
 
 // Helper function to format file size
@@ -39,6 +47,117 @@ async function proxyFetch(apiPath, options = {}) {
     });
 }
 
+// Fetch policy details
+async function fetchPolicyDetails(policyId) {
+    try {
+        const response = await proxyFetch(`/api/governance/v1/policies/${policyId}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch policy: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error(`Error fetching policy ${policyId}:`, error);
+        return null;
+    }
+}
+
+// Load all policies on startup
+async function loadPolicies() {
+    console.log('Loading policies...');
+    for (const [name, id] of Object.entries(POLICY_IDS)) {
+        const policy = await fetchPolicyDetails(id);
+        if (policy) {
+            appState.policies[name] = policy;
+            console.log(`Loaded policy: ${name}`, policy);
+        }
+    }
+}
+
+// Convert label to field ID
+function labelToFieldId(label) {
+    return label.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .replace(/\s+/g, '-');
+}
+
+// Generate dynamic form fields based on policy
+function generateDynamicFields(policy) {
+    const container = document.getElementById('dynamic-fields');
+    if (!policy || !policy.stages) {
+        container.innerHTML = '<p>No policy fields available</p>';
+        return;
+    }
+    
+    let fieldsHtml = '';
+    
+    // Iterate through all stages and evidence sets
+    policy.stages.forEach(stage => {
+        if (stage.evidenceSet && stage.evidenceSet.length > 0) {
+            fieldsHtml += `<h4>${stage.name}</h4>`;
+            
+            stage.evidenceSet.forEach(evidence => {
+                if (evidence.artifacts && evidence.artifacts.length > 0) {
+                    fieldsHtml += `<div class="evidence-section">`;
+                    fieldsHtml += `<h5>${evidence.name}</h5>`;
+                    if (evidence.description) {
+                        fieldsHtml += `<p class="evidence-description">${evidence.description}</p>`;
+                    }
+                    
+                    evidence.artifacts.forEach(artifact => {
+                        const label = artifact.details.label;
+                        const type = artifact.details.type;
+                        const fieldId = `field-${artifact.id}`;
+                        const required = artifact.required;
+                        
+                        fieldsHtml += '<div class="form-group">';
+                        fieldsHtml += `<label for="${fieldId}">${label}${required ? ' <span class="required">*</span>' : ''}</label>`;
+                        
+                        switch (type) {
+                            case 'textinput':
+                                fieldsHtml += `<input type="text" id="${fieldId}" name="${fieldId}" data-label="${label}" data-artifact-id="${artifact.id}" ${required ? 'required' : ''}>`;
+                                break;
+                            case 'textarea':
+                                fieldsHtml += `<textarea id="${fieldId}" name="${fieldId}" rows="4" data-label="${label}" data-artifact-id="${artifact.id}" ${required ? 'required' : ''}></textarea>`;
+                                break;
+                            case 'radio':
+                                if (artifact.details.options) {
+                                    fieldsHtml += '<div class="radio-group">';
+                                    artifact.details.options.forEach((option, index) => {
+                                        fieldsHtml += `
+                                            <label class="radio-label">
+                                                <input type="radio" name="${fieldId}" value="${option}" data-label="${label}" data-artifact-id="${artifact.id}" ${index === 0 ? 'checked' : ''}>
+                                                ${option}
+                                            </label>
+                                        `;
+                                    });
+                                    fieldsHtml += '</div>';
+                                }
+                                break;
+                        }
+                        
+                        fieldsHtml += '</div>';
+                    });
+                    
+                    fieldsHtml += '</div>';
+                }
+            });
+        }
+    });
+    
+    container.innerHTML = fieldsHtml;
+}
+
+// Handle policy selection change
+function handlePolicyChange(event) {
+    const selectedPolicyName = event.target.value;
+    appState.selectedPolicy = selectedPolicyName;
+    
+    const policy = appState.policies[selectedPolicyName];
+    if (policy) {
+        generateDynamicFields(policy);
+    }
+}
+
 // Handle file upload
 function handleFileUpload(event) {
     const files = Array.from(event.target.files)
@@ -50,7 +169,6 @@ function handleFileUpload(event) {
     appState.uploadedFiles = files;
     displayUploadedFiles();
 }
-
 
 // Display uploaded files
 function displayUploadedFiles() {
@@ -82,27 +200,52 @@ function displayUploadedFiles() {
     `;
 }
 
-// Validate form
-function validateForm() {
-    const requiredFields = [
-        { id: 'model-name', label: 'Model Name' },
-        { id: 'model-owner', label: 'Model Owner' },
-        { id: 'model-use-case', label: 'Model Use Case' },
-        { id: 'model-usage-pattern', label: 'Model Usage Pattern' },
-        { id: 'model-environment-id', label: 'Model Environment ID' }
-    ];
+// Collect all dynamic field values
+function collectDynamicFields() {
+    const dynamicData = {};
+    const dynamicContainer = document.getElementById('dynamic-fields');
     
-    const errors = [];
-    
-    requiredFields.forEach(field => {
-        const input = document.getElementById(field.id);
-        if (!input.value.trim()) {
-            errors.push(`${field.label} is required`);
-            input.classList.add('error');
-        } else {
-            input.classList.remove('error');
+    // Collect all inputs and textareas
+    dynamicContainer.querySelectorAll('input[type="text"], textarea').forEach(field => {
+        const label = field.getAttribute('data-label');
+        if (label) {
+            const key = label.toLowerCase()
+                .replace(/[^\w\s]/g, '')
+                .replace(/\s+/g, '_');  // Use underscore for consistency with backend
+            dynamicData[key] = field.value.trim();
         }
     });
+    
+    // Collect radio buttons
+    dynamicContainer.querySelectorAll('.radio-group').forEach(group => {
+        const checkedRadio = group.querySelector('input[type="radio"]:checked');
+        if (checkedRadio) {
+            const label = checkedRadio.getAttribute('data-label');
+            if (label) {
+                const key = label.toLowerCase()
+                    .replace(/[^\w\s]/g, '')
+                    .replace(/\s+/g, '_');  // Use underscore for consistency with backend
+                const value = checkedRadio.value;
+                // Convert Yes/No to boolean for backend
+                if (value === 'Yes' || value === 'No') {
+                    dynamicData[key] = value === 'Yes';
+                } else {
+                    dynamicData[key] = value;
+                }
+            }
+        }
+    });
+    
+    return dynamicData;
+}
+
+// Validate form
+function validateForm() {
+    const errors = [];
+    
+    if (!appState.selectedPolicy) {
+        errors.push('Please select a policy');
+    }
     
     if (appState.uploadedFiles.length === 0) {
         errors.push('Please upload model files');
@@ -110,6 +253,18 @@ function validateForm() {
     } else {
         document.getElementById('model-upload').classList.remove('error');
     }
+    
+    // Validate required dynamic fields
+    const dynamicContainer = document.getElementById('dynamic-fields');
+    dynamicContainer.querySelectorAll('[required]').forEach(field => {
+        if (!field.value.trim()) {
+            const label = field.closest('.form-group').querySelector('label').textContent.replace(' *', '');
+            errors.push(`${label} is required`);
+            field.classList.add('error');
+        } else {
+            field.classList.remove('error');
+        }
+    });
     
     return errors;
 }
@@ -189,7 +344,7 @@ function updateProgress(data) {
 // Hide loading state
 function hideLoading(button) {
     button.disabled = false;
-    button.innerHTML = 'Register External Model with Domino';
+    button.innerHTML = 'Register AI Use Case with Domino';
     
     const progressContainer = document.getElementById('progress-container');
     if (progressContainer) {
@@ -367,6 +522,13 @@ function resetForm() {
     document.getElementById('success-message').innerHTML = '';
     document.getElementById('success-message').style.display = 'none';
     
+    // Reset to first policy
+    const policySelector = document.getElementById('policy-selector');
+    if (policySelector) {
+        policySelector.selectedIndex = 0;
+        handlePolicyChange({ target: policySelector });
+    }
+    
     const progressContainer = document.getElementById('progress-container');
     if (progressContainer) {
         progressContainer.remove();
@@ -415,14 +577,12 @@ async function handleSubmit(event) {
         const formData = new FormData();
         
         formData.append('requestId', requestId);
-        formData.append('modelName', document.getElementById('model-name').value.trim());
-        formData.append('modelDescription', document.getElementById('model-description').value.trim());
-        formData.append('modelOwner', document.getElementById('model-owner').value.trim());
-        formData.append('modelUseCase', document.getElementById('model-use-case').value.trim());
-        formData.append('modelUsagePattern', document.getElementById('model-usage-pattern').value.trim());
-        formData.append('modelEnvironmentId', document.getElementById('model-environment-id').value.trim());
-        formData.append('modelExecutionScript', document.getElementById('model-execution-script').value.trim());
-        formData.append('policyName', document.getElementById('policy-name').value.trim());
+        formData.append('policyName', appState.selectedPolicy);
+        formData.append('policyId', POLICY_IDS[appState.selectedPolicy]);
+        
+        // Collect and append all dynamic fields
+        const dynamicFields = collectDynamicFields();
+        formData.append('dynamicFields', JSON.stringify(dynamicFields));
         
         // Append files
         appState.uploadedFiles.forEach(file => {
@@ -446,7 +606,7 @@ async function handleSubmit(event) {
         
     } catch (error) {
         console.error('Registration error:', error);
-        showErrors([`Failed to register model: ${error.message}`]);
+        showErrors([`Failed to register AI use case: ${error.message}`]);
     } finally {
         hideLoading(submitButton);
     }
@@ -457,7 +617,7 @@ function initializeForm() {
     const container = document.querySelector('.container');
     
     container.innerHTML = `
-        <h1 class="welcome-title">Register External Model</h1>
+        <h1 class="welcome-title">Register AI Use Case</h1>
         
         <div id="error-messages"></div>
         
@@ -466,47 +626,15 @@ function initializeForm() {
                 <div class="form-columns">
                     <div class="form-column-left">
                         <div class="form-group">
-                            <label for="model-name">Model Name <span class="required">*</span></label>
-                            <input type="text" id="model-name" name="modelName" required>
+                            <label for="policy-selector">Select Governance Policy <span class="required">*</span></label>
+                            <select id="policy-selector" name="policySelector" required>
+                                <option value="">-- Select a Policy --</option>
+                                ${Object.keys(POLICY_IDS).map(name => 
+                                    `<option value="${name}">${name}</option>`
+                                ).join('')}
+                            </select>
                         </div>
                         
-                        <div class="form-group">
-                            <label for="model-description">Model Description</label>
-                            <textarea id="model-description" name="modelDescription" rows="4"></textarea>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="model-owner">Model Owner <span class="required">*</span></label>
-                            <input type="text" id="model-owner" name="modelOwner" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="model-use-case">Model Use Case <span class="required">*</span></label>
-                            <textarea id="model-use-case" name="modelUseCase" rows="4" required></textarea>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="model-usage-pattern">Model Usage Pattern <span class="required">*</span></label>
-                            <textarea id="model-usage-pattern" name="modelUsagePattern" rows="4" required></textarea>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="model-environment-id">Model Environment ID <span class="required">*</span></label>
-                            <input type="text" id="model-environment-id" name="modelEnvironmentId" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="model-execution-script">Model Execution Script</label>
-                            <input type="text" id="model-execution-script" name="modelExecutionScript" placeholder="app.sh">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="policy-name">Policy Name</label>
-                            <input type="text" id="policy-name" name="policyName" value="Standard Model Pilot [d2]">
-                        </div>
-                    </div>
-                    
-                    <div class="form-column-middle">
                         <div class="form-group">
                             <label for="model-upload">Upload Model Folder <span class="required">*</span></label>
                             <input type="file" id="model-upload" webkitdirectory directory multiple required style="display: none;">
@@ -519,8 +647,14 @@ function initializeForm() {
                         </div>
                         
                         <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">Register External Model with Domino</button>
+                            <button type="submit" class="btn btn-primary">Register AI Use Case with Domino</button>
                             <button type="button" class="btn btn-secondary" onclick="resetForm()">Reset</button>
+                        </div>
+                    </div>
+                    
+                    <div class="form-column-middle">
+                        <div id="dynamic-fields">
+                            <p>Please select a governance policy to see the required fields</p>
                         </div>
                     </div>
                 </div>
@@ -535,6 +669,12 @@ function initializeForm() {
     // Attach event listeners
     document.getElementById('model-upload').addEventListener('change', handleFileUpload);
     document.getElementById('model-upload-form').addEventListener('submit', handleSubmit);
+    document.getElementById('policy-selector').addEventListener('change', handlePolicyChange);
+    
+    // Load policies and set default
+    loadPolicies().then(() => {
+        console.log('Policies loaded successfully');
+    });
 }
 
 // Initialize on DOM load

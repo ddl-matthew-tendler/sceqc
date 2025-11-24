@@ -190,45 +190,6 @@ def normalize_label(label: str) -> str:
     return normalized
 
 
-def search_policy_overviews(search_term: str, limit: int = 10, offset: int = 0) -> dict:
-    """
-    Search Domino Governance Policy Overviews by keyword and return the first non-archived policy.
-    """
-    domain = DOMINO_DOMAIN.removeprefix("https://").removeprefix("http://")
-    url = f"https://{domain}/api/governance/v1/policy-overviews"
-    headers = {
-        "accept": "application/json",
-        "X-Domino-Api-Key": DOMINO_API_KEY
-    }
-    params = {
-        "search": search_term,
-        "limit": limit,
-        "offset": offset
-    }
-
-    try:
-        logger.info(f"Searching policy overviews for term: {search_term}")
-        response = requests.get(url, headers=headers, params=params, timeout=30)
-        response.raise_for_status()
-        result = response.json()
-
-        # Filter out archived or invalid entries
-        policies = result.get("data", [])
-        active_policies = [p for p in policies if not p.get("archived", False)]
-
-        if not active_policies:
-            logger.warning(f"No active (non-archived) policies found for search term '{search_term}'")
-            return {}
-
-        first_policy = active_policies[0]
-        logger.info(f"Found policy: {first_policy.get('name')} (status={first_policy.get('status')})")
-        return first_policy
-
-    except requests.RequestException as e:
-        logger.error(f"Failed to search policy overviews: {e}")
-        raise
-
-
 def get_policy_details(policy_id: str) -> dict:
     """Get policy details including classification artifact map."""
     domain = DOMINO_DOMAIN.removeprefix("https://").removeprefix("http://")
@@ -362,7 +323,7 @@ def submit_artifacts_to_policy(bundle_id: str, policy_id: str, matched_artifacts
 
 
 def register_model_handler(request, progress_queues):
-    """Handle model registration with security scanning."""
+    """Handle model registration with security scanning and dynamic fields."""
     logger.info("=" * 80)
     logger.info("REGISTER EXTERNAL MODEL - Request Received")
     logger.info("=" * 80)
@@ -371,35 +332,26 @@ def register_model_handler(request, progress_queues):
     request_id = request.form.get("requestId", str(uuid.uuid4()))
     
     try:
-        model_name = request.form.get("modelName")
-        model_description = request.form.get("modelDescription", "")
-        model_owner = request.form.get("modelOwner")
-        model_use_case = request.form.get("modelUseCase")
-        model_usage_pattern = request.form.get("modelUsagePattern")
-        model_environment_id = request.form.get("modelEnvironmentId")
-        model_execution_script = request.form.get("modelExecutionScript", "")
-        policy_name = request.form.get("policyName", "")
-        print('-'*80)
-        print(policy_name)
-
-        required_fields = [model_name, model_owner, model_use_case, model_usage_pattern, model_environment_id, policy_name]
-        if not all(required_fields):
-            return jsonify({"status": "error", "message": "Missing required fields"}), 400
-
-        policy_overview = search_policy_overviews(policy_name)
-        if 'id' in policy_overview.keys():
-            policy_id = policy_overview.get('id')
-        else:
-            return jsonify({"status": "error", "message": "No matching Policy Name found."}), 400
+        # Get policy information
+        policy_name = request.form.get("policyName")
+        policy_id = request.form.get("policyId")
+        
+        # Parse dynamic fields from JSON
+        dynamic_fields_json = request.form.get("dynamicFields", "{}")
+        dynamic_fields = json.loads(dynamic_fields_json)
+        
+        logger.info(f"Policy Name: {policy_name}")
+        logger.info(f"Policy ID: {policy_id}")
+        logger.info(f"Dynamic Fields: {dynamic_fields}")
+        
+        if not policy_id or not policy_name:
+            return jsonify({"status": "error", "message": "Policy selection is required"}), 400
 
         send_progress(request_id, 'policy', 'Retrieving policy details...', progress_queues, progress=5)
         policy_data = get_policy_details(policy_id)
-        print('-'*80)
-        print('policy data')
-        print(policy_data)
-        print('-'*80)
+        
         files = request.files.getlist('files')
-        temp_dir = tempfile.mkdtemp(prefix=f"external_model_{model_name}_")
+        temp_dir = tempfile.mkdtemp(prefix=f"external_model_{policy_name}_")
         logger.info(f"Created temp directory: {temp_dir}")
         
         send_progress(request_id, 'upload', 'Saving uploaded files...', progress_queues, progress=10)
@@ -410,6 +362,26 @@ def register_model_handler(request, progress_queues):
         file_status = {}
         model_pkl = None
         signature_pkl = None
+        
+        # Extract commonly used fields from dynamic fields with proper normalization
+        model_name = dynamic_fields.get('model_name', '')
+        if not model_name:
+            # Try different variations
+            model_name = dynamic_fields.get('model-name', '')
+        if not model_name:
+            # Generate a default name if still empty
+            model_name = f'model_{int(time.time())}'
+            logger.warning(f"Model name not found in dynamic fields, using default: {model_name}")
+        
+        # Extract other fields with similar normalization
+        model_description = dynamic_fields.get('model_description', dynamic_fields.get('model-description', ''))
+        model_owner = dynamic_fields.get('model_owner', dynamic_fields.get('model-owner', ''))
+        model_use_case = dynamic_fields.get('model_use_case', dynamic_fields.get('model-use-case', ''))
+        model_usage_pattern = dynamic_fields.get('model_usage_pattern', dynamic_fields.get('model-usage-pattern', ''))
+        model_environment_id = dynamic_fields.get('model_environment_id', dynamic_fields.get('model-environment-id', ''))
+        model_execution_script = dynamic_fields.get('model_execution_script', dynamic_fields.get('model-execution-script', ''))
+        
+        logger.info(f"Extracted fields - Model Name: {model_name}, Owner: {model_owner}")
 
         list_the_file_names_and_sizes = ''
         for saved_file in saved_files:
@@ -449,14 +421,17 @@ def register_model_handler(request, progress_queues):
             logger.info(f"Started MLflow run: {run_id}")
             
             send_progress(request_id, 'params', 'Logging parameters...', progress_queues, progress=45)
-            mlflow.log_param("model_name", model_name)
-            mlflow.log_param("experiment_id", experiment_id)
-            mlflow.log_param("model_description", model_description)
-            mlflow.log_param("model_owner", model_owner)
-            mlflow.log_param("model_use_case", model_use_case)
-            mlflow.log_param("model_usage_pattern", model_usage_pattern)
-            mlflow.log_param("model_environment_id", model_environment_id)
-            mlflow.log_param("model_execution_script", model_execution_script)
+            
+            # Log all dynamic fields as parameters
+            for key, value in dynamic_fields.items():
+                if value is not None and value != '':
+                    # MLflow has a limit on param value length, truncate if needed
+                    param_value = str(value)[:250] if len(str(value)) > 250 else str(value)
+                    mlflow.log_param(key, param_value)
+            
+            # Add additional metadata
+            mlflow.log_param("policy_name", policy_name)
+            mlflow.log_param("policy_id", policy_id)
             mlflow.log_param("registration_time", time.time())
             mlflow.log_param("file_count", len(saved_files))
             
@@ -508,6 +483,12 @@ def register_model_handler(request, progress_queues):
                 logger.warning(f"Failed to generate PDF report (non-fatal): {e}")
 
             send_progress(request_id, 'model', 'Registering model...', progress_queues, progress=70)
+            
+            # Validate model_name before registration
+            if not model_name or model_name.strip() == '':
+                raise ValueError("Model name cannot be empty. Please provide a Model Name in the form.")
+            
+            logger.info(f"Registering model with name: {model_name}")
 
             if signature_pkl:
                 signature = joblib.load(signature_pkl)
@@ -555,19 +536,12 @@ def register_model_handler(request, progress_queues):
         stage = bundle_data.get("stage", "").lower().replace(" ", "-")
         html_remote_path = f"security_scans/{bundle_name}_security_report.html"
         pdf_remote_path = f"security_scans/{bundle_name}_security_report.pdf"
-        print('-'*80)
-
-        print('bundle data')
-        print(bundle_data)
-        print('-'*80)
-
+        
         try:
             html_upload_result = upload_file_to_project(DOMINO_PROJECT_ID, str(security_report_html_path), html_remote_path)
             pdf_upload_result = upload_file_to_project(DOMINO_PROJECT_ID, str(security_report_pdf_path), pdf_remote_path)
     
             logger.info("Security reports successfully uploaded to Domino project repository.")
-            print('html upload result', html_upload_result)
-            print('pdf upload result', pdf_upload_result)
     
             html_commit = html_upload_result.get("key")
             pdf_commit = pdf_upload_result.get("key")
@@ -589,26 +563,20 @@ def register_model_handler(request, progress_queues):
         model_card_url = f"https://{domain}/u/{project_owner}/{project_name}/model-registry/{model_name}/model-card?version={model_version}"
         bundle_url = f"https://{domain}/u/{project_owner}/{project_name}/governance/bundle/{bundle_id}/policy/{policy_id}/evidence/stage/{stage}"
         security_scan_url = f"https://{domain}/u/{project_owner}/{project_name}/view-file/{html_remote_path}"
-        executive_summary = f"Executive Summary: {model_description}"
-        does_this_model_use_thirdparty_components_or_services = True
-        ai_classification_level = 2
-        were_all_the_files_uploaded = True
         
-        evidence_variables = {
-            'model_name': model_name,
-            'model_description': model_description,
-            'model_owner': model_owner,
-            'model_use_case': model_use_case,
-            'model_usage_pattern': model_usage_pattern,
-            'model_environment_id': model_environment_id,
-            'model_execution_script': model_execution_script,
-            'list_the_file_names_and_sizes': list_the_file_names_and_sizes,
-            'were_all_files_uploaded': were_all_the_files_uploaded,
-            'does_this_model_use_thirdparty_components_or_services': does_this_model_use_thirdparty_components_or_services,
-            'ai_classification_level': ai_classification_level,
-            'executive_summary': executive_summary,
-            'model_version': model_version
-        }
+        # Add file list to dynamic fields if not already present
+        dynamic_fields['list_the_file_names_and_sizes'] = list_the_file_names_and_sizes
+        dynamic_fields['were_all_files_uploaded'] = True
+        
+        # Add some default values if not provided
+        if 'model_version' not in dynamic_fields:
+            dynamic_fields['model_version'] = model_version
+        if 'executive_summary' not in dynamic_fields:
+            dynamic_fields['executive_summary'] = f"Executive Summary: {model_description}"
+        if 'does_this_model_use_thirdparty_components_or_services' not in dynamic_fields:
+            dynamic_fields['does_this_model_use_thirdparty_components_or_services'] = True
+        if 'ai_classification_level' not in dynamic_fields:
+            dynamic_fields['ai_classification_level'] = 2
                 
         stages = policy_data.get("stages", [])
         
@@ -628,8 +596,21 @@ def register_model_handler(request, progress_queues):
                         
                         if unique_key not in seen_keys:
                             seen_keys.add(unique_key)
-                            normalized_key = normalize_label(label)
-                            value = evidence_variables.get(normalized_key)
+                            # Try to find matching value in dynamic fields
+                            # Normalize the label to match how frontend sends it
+                            normalized_key = label.lower().replace(' ', '_').replace('?', '').replace(',', '').replace("'", '')
+                            normalized_key_hyphen = normalized_key.replace('_', '-')
+                            value = None
+                            
+                            # Try different key variations
+                            for field_key, field_value in dynamic_fields.items():
+                                # Check exact match or hyphen/underscore variations
+                                if (field_key == normalized_key or 
+                                    field_key == normalized_key_hyphen or
+                                    field_key.replace('-', '_') == normalized_key or
+                                    field_key.replace('_', '-') == normalized_key_hyphen):
+                                    value = field_value
+                                    break
                             
                             matched_artifacts.append({
                                 'bundle_id': bundle_id,
@@ -643,11 +624,12 @@ def register_model_handler(request, progress_queues):
         
         print("\nMatched Policy Artifacts with Evidence Variables:")
         for artifact in matched_artifacts:
-            print(artifact)
+            if artifact['value'] is not None:
+                print(f"  {artifact['label']}: {artifact['value']}")
 
         send_progress(request_id, 'evidence', 'Submitting evidence to policy...', progress_queues, progress=90)
         policy_submission_result = submit_artifacts_to_policy(bundle_id, policy_id, matched_artifacts)
-        logger.info(f"Successfully submitted {len(matched_artifacts)} artifacts to policy")
+        logger.info(f"Successfully submitted {len([a for a in matched_artifacts if a['value'] is not None])} artifacts to policy")
 
         send_progress(request_id, 'endpoint', 'Registering model endpoint...', progress_queues, progress=95)
         try:
@@ -719,6 +701,3 @@ def register_model_handler(request, progress_queues):
             "status": "error",
             "message": f"Failed to register model: {str(e)}"
         }), 500
-
-
-
