@@ -771,6 +771,12 @@ async function handleAssistGovernance(event) {
 
         // Stop animation and restore editability before applying suggestions
         clearInterval(ellipsisInterval);
+        // restore original values (so fields are empty if they were empty before autofill)
+        animFields.forEach(f => {
+            if (savedValues.has(f)) {
+                try { f.value = savedValues.get(f) || ''; } catch (e) {}
+            }
+        });
         animFields.forEach(f => {
             f.classList.remove('ai-thinking');
             try { f.readOnly = false; } catch (e) {}
@@ -805,7 +811,9 @@ async function handleAssistGovernance(event) {
         clearInterval(ellipsisInterval);
         animFields.forEach(f => {
             try { f.readOnly = false; } catch (e) {}
-            if (savedValues.has(f)) f.value = savedValues.get(f) || '';
+            if (savedValues.has(f)) {
+                try { f.value = savedValues.get(f) || ''; } catch (e) {}
+            }
             f.classList.remove('ai-thinking');
         });
         radioInputs.forEach(r => {
