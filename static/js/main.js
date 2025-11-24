@@ -2,6 +2,8 @@
 const DOMINO_API_BASE = window.location.origin + window.location.pathname.replace(/\/$/, '');
 const ORIGINAL_API_BASE = window.DOMINO?.API_BASE || '';
 const API_KEY = window.DOMINO?.API_KEY || null;
+// Local AI icon to avoid loading from an unreliable CDN
+const AI_ICON_URL = '/static/img/ai-icon.svg';
 
 // Hardcoded policy IDs
 const POLICY_IDS = {
@@ -790,7 +792,7 @@ function populateSuggestedFields(suggestions) {
                                 const badge = document.createElement('span');
                                 badge.className = 'ai-badge';
                                 badge.setAttribute('data-ai-original', String(value));
-                                badge.innerHTML = '<img src="https://cdn-icons-png.flaticon.com/512/17653/1765338.png" alt="ai"/>';
+                                badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
                                 parent.style.position = parent.style.position || 'relative';
                                 parent.appendChild(badge);
                             }
@@ -819,7 +821,7 @@ function populateSuggestedFields(suggestions) {
                                     const badge = document.createElement('span');
                                     badge.className = 'ai-badge';
                                     badge.setAttribute('data-ai-original', String(value));
-                                    badge.innerHTML = '<img src="https://cdn-icons-png.flaticon.com/512/17653/1765338.png" alt="ai"/>';
+                                    badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
                                     parent.style.position = parent.style.position || 'relative';
                                     parent.appendChild(badge);
                                 }
@@ -851,7 +853,7 @@ function populateSuggestedFields(suggestions) {
                                             const badge = document.createElement('span');
                                             badge.className = 'ai-badge';
                                             badge.setAttribute('data-ai-original', String(value));
-                                            badge.innerHTML = '<img src="https://cdn-icons-png.flaticon.com/512/17653/1765338.png" alt="ai"/>';
+                                            badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
                                             pcontainer.style.position = pcontainer.style.position || 'relative';
                                             pcontainer.appendChild(badge);
                                         }
@@ -985,7 +987,7 @@ function initializeForm() {
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Register AI Use Case with Domino</button>
                             <button type="button" class="btn btn-ai" id="assist-governance-button" title="Autofill Fields">
-                                Autofill Fields&nbsp;<img src="https://cdn-icons-png.flaticon.com/512/17653/1765338.png" alt="ai" class="ai-inline-icon" style="width:16px;height:16px;vertical-align:middle;">
+                                Autofill Fields&nbsp;<img src="${AI_ICON_URL}" alt="ai" class="ai-inline-icon" style="width:16px;height:16px;vertical-align:middle;">
                             </button>
                             <button type="button" class="btn btn-secondary" onclick="resetForm()">Reset</button>
                         </div>
