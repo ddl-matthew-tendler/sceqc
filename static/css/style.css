@@ -125,6 +125,15 @@ body {
   flex-direction: column;
 }
 
+/* Card utility for wrapping columns */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-4);
+  box-shadow: var(--shadow-sm);
+}
+
 .results-column {
   position: sticky;
   top: var(--sp-6);

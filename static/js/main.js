@@ -165,8 +165,9 @@ function generateDynamicFields(policy) {
             if (orig !== null) {
                 const cur = (el.value || '').toString();
                 if (cur !== orig) {
-                    // remove badge if present
-                    const badge = el.parentElement ? el.parentElement.querySelector('.ai-badge') : null;
+                    // remove badge if present (look on the closest .form-group)
+                    const group = el.closest('.form-group');
+                    const badge = group ? group.querySelector('.ai-badge') : null;
                     if (badge) badge.remove();
                     el.removeAttribute('data-ai-original');
                     el.classList.remove('auto-filled');
@@ -793,29 +794,29 @@ function populateSuggestedFields(suggestions) {
                         field.dispatchEvent(new Event('input'));
                         field.classList.add('auto-filled');
                         // add badge element inside parent .form-group for positioning
-                        try {
-                            const parent = field.parentElement || field.closest('.form-group');
-                            if (parent && !parent.querySelector('.ai-badge')) {
-                                const badge = document.createElement('span');
-                                badge.className = 'ai-badge';
-                                badge.setAttribute('data-ai-original', String(value));
-                                badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
-                                // position badge in the top-right of the form group
-                                badge.style.position = 'absolute';
-                                badge.style.top = '6px';
-                                badge.style.right = '6px';
-                                badge.style.width = '20px';
-                                badge.style.height = '20px';
-                                badge.style.display = 'inline-flex';
-                                badge.style.alignItems = 'center';
-                                badge.style.justifyContent = 'center';
-                                badge.style.pointerEvents = 'none';
-                                parent.style.position = parent.style.position || 'relative';
-                                parent.appendChild(badge);
+                            try {
+                                const container = field.closest('.form-group') || field.parentElement;
+                                if (container && !container.querySelector('.ai-badge')) {
+                                    const badge = document.createElement('span');
+                                    badge.className = 'ai-badge';
+                                    badge.setAttribute('data-ai-original', String(value));
+                                    badge.innerHTML = `<img src="${AI_ICON_URL}" alt="ai"/>`;
+                                    // position badge in the top-right of the form group
+                                    badge.style.position = 'absolute';
+                                    badge.style.top = '6px';
+                                    badge.style.right = '6px';
+                                    badge.style.width = '20px';
+                                    badge.style.height = '20px';
+                                    badge.style.display = 'inline-flex';
+                                    badge.style.alignItems = 'center';
+                                    badge.style.justifyContent = 'center';
+                                    badge.style.pointerEvents = 'none';
+                                    container.style.position = container.style.position || 'relative';
+                                    container.appendChild(badge);
+                                }
+                            } catch (e) {
+                                // ignore
                             }
-                        } catch (e) {
-                            // ignore
-                        }
                         setTimeout(() => field.classList.remove('auto-filled'), 2000);
                     }
                 });
@@ -833,8 +834,8 @@ function populateSuggestedFields(suggestions) {
                             field.dispatchEvent(new Event('input'));
                             field.classList.add('auto-filled');
                             try {
-                                const parent = field.parentElement || field.closest('.form-group');
-                                if (parent && !parent.querySelector('.ai-badge')) {
+                                const container = field.closest('.form-group') || field.parentElement;
+                                if (container && !container.querySelector('.ai-badge')) {
                                     const badge = document.createElement('span');
                                     badge.className = 'ai-badge';
                                     badge.setAttribute('data-ai-original', String(value));
@@ -849,8 +850,8 @@ function populateSuggestedFields(suggestions) {
                                     badge.style.alignItems = 'center';
                                     badge.style.justifyContent = 'center';
                                     badge.style.pointerEvents = 'none';
-                                    parent.style.position = parent.style.position || 'relative';
-                                    parent.appendChild(badge);
+                                    container.style.position = container.style.position || 'relative';
+                                    container.appendChild(badge);
                                 }
                             } catch (e) {}
                             setTimeout(() => field.classList.remove('auto-filled'), 2000);
@@ -999,7 +1000,7 @@ function initializeForm() {
         <div class="form-layout">
             <form id="model-upload-form" class="model-form">
                 <div class="form-columns">
-                    <div class="form-column-left">
+                    <div class="form-column-left card">
                         <div class="form-group">
                             <label for="policy-selector">Select Governance Policy <span class="required">*</span></label>
                             <select id="policy-selector" name="policySelector" required>
@@ -1030,7 +1031,7 @@ function initializeForm() {
                         </div>
                     </div>
                     
-                    <div class="form-column-middle">
+                    <div class="form-column-middle card">
                         <div id="dynamic-fields">
                             <p>Please select a governance policy to see the required fields</p>
                         </div>
