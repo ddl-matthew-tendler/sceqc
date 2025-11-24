@@ -162,13 +162,16 @@ function generateDynamicFields(policy) {
         f.addEventListener('input', (ev) => {
             const el = ev.target;
             const orig = el.getAttribute('data-ai-original');
-            if (orig !== null) {
+                    if (orig !== null) {
                 const cur = (el.value || '').toString();
                 if (cur !== orig) {
                     // remove badge if present (look on the closest .form-group)
                     const group = el.closest('.form-group');
                     const badge = group ? group.querySelector('.ai-badge') : null;
-                    if (badge) badge.remove();
+                    if (badge) {
+                        badge.remove();
+                        group.classList.remove('has-ai-badge');
+                    }
                     el.removeAttribute('data-ai-original');
                     el.classList.remove('auto-filled');
                 }
@@ -183,7 +186,7 @@ function generateDynamicFields(policy) {
             const lbl = r.getAttribute('data-label');
             // find any ai-badge for this label and remove if selected value differs from ai suggested
             const group = container.querySelectorAll(`input[type="radio"][data-label="${CSS.escape(lbl)}"]`);
-            group.forEach(g => {
+                group.forEach(g => {
                 const parent = g.closest('.form-group') || g.closest('label') || g.parentElement;
                 const badge = parent ? parent.querySelector('.ai-badge') : null;
                 if (badge) {
@@ -193,6 +196,7 @@ function generateDynamicFields(policy) {
                         const checked = Array.from(group).find(x => x.checked);
                         if (!checked || String(checked.value) !== orig) {
                             badge.remove();
+                            if (parent && parent.classList) parent.classList.remove('has-ai-badge');
                         }
                     }
                 }
@@ -587,6 +591,11 @@ function resetForm() {
     if (progressContainer) {
         progressContainer.remove();
     }
+    // remove any AI badges and group markers
+    try {
+        document.querySelectorAll('.ai-badge').forEach(b => b.remove());
+        document.querySelectorAll('.form-group.has-ai-badge').forEach(g => g.classList.remove('has-ai-badge'));
+    } catch (e) {}
 }
 
 // Handle form submission with SSE progress
@@ -813,6 +822,8 @@ function populateSuggestedFields(suggestions) {
                                     badge.style.pointerEvents = 'none';
                                     container.style.position = container.style.position || 'relative';
                                     container.appendChild(badge);
+                                    // mark group so we can add input padding to avoid overlap
+                                    container.classList.add('has-ai-badge');
                                 }
                             } catch (e) {
                                 // ignore
@@ -852,6 +863,8 @@ function populateSuggestedFields(suggestions) {
                                     badge.style.pointerEvents = 'none';
                                     container.style.position = container.style.position || 'relative';
                                     container.appendChild(badge);
+                                    // mark group so we can add input padding to avoid overlap
+                                    container.classList.add('has-ai-badge');
                                 }
                             } catch (e) {}
                             setTimeout(() => field.classList.remove('auto-filled'), 2000);
@@ -894,6 +907,8 @@ function populateSuggestedFields(suggestions) {
                                             badge.style.pointerEvents = 'none';
                                             pcontainer.style.position = pcontainer.style.position || 'relative';
                                             pcontainer.appendChild(badge);
+                                            // mark group to apply padding so badge doesn't overlap input text
+                                            pcontainer.classList.add('has-ai-badge');
                                         }
                                     } catch (e) {}
                                     setTimeout(() => parentLabel.classList.remove('auto-filled'), 2000);

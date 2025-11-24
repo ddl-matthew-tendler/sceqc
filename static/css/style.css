@@ -134,6 +134,22 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+/* AI badge styles */
+.ai-badge {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* When a form-group has an AI badge, add right padding to inputs so text doesn't flow under the badge */
+.form-group.has-ai-badge input[type="text"],
+.form-group.has-ai-badge textarea {
+  padding-right: 44px; /* accounts for badge + spacing */
+}
+
 .results-column {
   position: sticky;
   top: var(--sp-6);
