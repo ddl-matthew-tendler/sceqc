@@ -98,9 +98,7 @@ body {
 
 /* ---------- Form Styles ---------- */
 .form-layout {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: var(--sp-6);
+  display: block;
   margin-top: 2rem;
 }
 
@@ -114,7 +112,7 @@ body {
 
 .form-columns {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 40% 60%;
   gap: var(--sp-6);
 }
 
@@ -132,16 +130,6 @@ body {
   border-radius: var(--r-sm);
   padding: var(--sp-4);
   box-shadow: var(--shadow-sm);
-}
-
-/* AI badge styles */
-.ai-badge {
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
 }
 
 /* When a form-group has an AI badge, add right padding to inputs so text doesn't flow under the badge */
@@ -384,6 +372,10 @@ body {
 }
 
 /* ---------- Success Message ---------- */
+#success-message {
+  margin-top: var(--sp-6);
+}
+
 .success-box {
   background: var(--ok-bg);
   border: 1px solid color-mix(in srgb, var(--ok-fg) 30%, transparent);
@@ -436,24 +428,6 @@ label.auto-filled {
   transition: background 1.6s ease;
 }
 
-/* AI badge positioned inside the form-group (bottom-left of the field) */
-.form-group { position: relative; }
-.ai-badge {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255,255,255,0.95);
-  border-radius: 4px;
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border);
-  z-index: 3;
-}
-.ai-badge img { width: 16px; height: 16px; display: block; }
 
 /* Field state while AI is generating suggestions */
 
@@ -499,12 +473,15 @@ label.auto-filled {
   box-shadow: 0 0 0 4px color-mix(in srgb, #F59E0B 12%, transparent);
 }
 
-/* Robust badge placement: top-right inside the form-group */
-.form-group { position: relative; }
+/* AI badge placement inside the form-group */
+.form-group {
+  position: relative;
+}
+
 .ai-badge {
   position: absolute;
   top: 16px;
-  left: 420px;
+  right: 12px;
   width: 22px;
   height: 22px;
   display: inline-flex;
@@ -516,7 +493,12 @@ label.auto-filled {
   border: 1px solid var(--border);
   z-index: 3;
 }
-.ai-badge img { width: 16px; height: 16px; display: block; }
+
+.ai-badge img {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
 [data-ai-tooltip]::after {
   content: attr(data-ai-tooltip);
   position: absolute;
@@ -675,50 +657,17 @@ label.auto-filled {
   color: var(--stop-fg);
 }
 
-/* ---------- Progress Container ---------- */
-.progress-container {
-    margin-top: var(--sp-4);
-    padding: var(--sp-4);
-    background: var(--subtle-2);
-    border-radius: var(--r-xs);
-    border: 1px solid var(--border);
-    transition: opacity 0.3s ease;
-}
-
-.progress-bar-container {
-    width: 100%;
-    height: 4px;
-    background: var(--subtle);
-    border-radius: var(--r-full);
-    overflow: hidden;
-    margin-bottom: var(--sp-2);
-}
-
-.progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg, var(--brand), var(--accent));
-    border-radius: var(--r-full);
-    transition: width 0.3s ease;
-}
-
-.progress-message {
-    font-size: var(--fs-12);
-    color: var(--muted);
-    font-style: italic;
-    text-align: center;
-}
-
 /* ---------- File Status Check ---------- */
 
 @keyframes checkPop {
-  0% { 
+  0% {
     transform: scale(0.7);
     opacity: 0;
   }
-  50% { 
+  50% {
     transform: scale(1.15);
   }
-  100% { 
+  100% {
     transform: scale(1);
     opacity: 1;
   }
@@ -764,16 +713,6 @@ label.auto-filled {
   }
 }
 
-.progress-container {
-  background: var(--panel);
-  border-radius: var(--r-md);
-  padding: var(--sp-6);
-  margin: var(--sp-6) 0;
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--border);
-  transition: opacity 0.3s ease;
-}
-
 .progress-header {
   display: flex;
   justify-content: space-between;
@@ -795,29 +734,6 @@ label.auto-filled {
   font-weight: 600;
   color: var(--brand);
   letter-spacing: -0.02em;
-}
-
-.progress-bar-container {
-  width: 100%;
-  height: 6px;
-  background: var(--subtle);
-  border-radius: var(--r-full);
-  overflow: hidden;
-  margin-bottom: var(--sp-3);
-}
-
-.progress-bar {
-  height: 100%;
-  background: linear-gradient(90deg, var(--brand), var(--accent));
-  border-radius: var(--r-full);
-  transition: width 0.3s ease;
-}
-
-.progress-message {
-  font-size: var(--fs-14);
-  color: var(--muted);
-  margin-bottom: var(--sp-5);
-  font-style: italic;
 }
 
 .files-checklist {
@@ -877,20 +793,6 @@ label.auto-filled {
   border-color: var(--ok-fg);
   color: white;
   animation: checkPop 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-}
-
-@keyframes checkPop {
-  0% { 
-    transform: scale(0.7);
-    opacity: 0;
-  }
-  50% { 
-    transform: scale(1.15);
-  }
-  100% { 
-    transform: scale(1);
-    opacity: 1;
-  }
 }
 
 /* ---------- File Status Check ---------- */

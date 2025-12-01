@@ -1049,8 +1049,10 @@ function initializeForm() {
                             <button type="submit" class="btn btn-primary">Submit Governance Data</button>
                             <button type="button" class="btn btn-secondary" onclick="resetForm()">Reset</button>
                         </div>
+
+                        <div id="success-message" style="display: none;"></div>
                     </div>
-                    
+
                     <div class="form-column-middle card">
                         <div id="dynamic-fields">
                             <p>Please select a governance policy to see the required fields</p>
@@ -1058,10 +1060,6 @@ function initializeForm() {
                     </div>
                 </div>
             </form>
-            
-            <div class="results-column">
-                <div id="success-message" style="display: none;"></div>
-            </div>
         </div>
     `;
     
