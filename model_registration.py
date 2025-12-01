@@ -20,9 +20,10 @@ from flask import jsonify
 from mlflow.pyfunc import PythonModel
 from mlflow.models.signature import infer_signature
 
-from security_scan import run_semgrep_scan, summarize_semgrep, generate_html_report, generate_pdf_from_html, DEFAULT_SEMGREP_CONFIG
-
-from endpoint_registration import register_endpoint
+try:
+    from docx import Document
+except ImportError:
+    Document = None
 
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,40 @@ def save_uploaded_files(files, temp_dir):
         })
     return saved_files
 
+
+def convert_docx_to_text(docx_path: str) -> str:
+    """Convert a .docx file to plain text.
+
+    Args:
+        docx_path: Path to the .docx file
+
+    Returns:
+        Plain text content of the document
+    """
+    if Document is None:
+        raise ImportError("python-docx library is not installed. Install it with: pip install python-docx")
+
+    try:
+        doc = Document(docx_path)
+        text_parts = []
+
+        # Extract text from paragraphs
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                text_parts.append(paragraph.text)
+
+        # Extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        text_parts.append(cell.text)
+
+        return "\n".join(text_parts)
+    except Exception as e:
+        logger.error(f"Error converting .docx to text: {e}")
+        return f"[Error reading .docx file: {e}]"
+
 def assist_governance_handler(request):
     """Use a Domino gateway LLM to suggest values for governance policy fields based on uploaded files.
 
@@ -177,9 +212,8 @@ def assist_governance_handler(request):
         saved_files = save_uploaded_files(files, temp_dir)
 
         # -----------------------------
-        # EXTRACT FILE CONTENTS SAFELY
+        # EXTRACT FILE CONTENTS SAFELY - ONLY PROCESS .DOCX FILES
         # -----------------------------
-        MAX_CHARS = 2000
         file_summaries = {}
 
         for sf in saved_files:
@@ -187,38 +221,17 @@ def assist_governance_handler(request):
             name = Path(path).name
             content = None
 
-            try:  # OUTER TRY (critical)
-                if name.lower().endswith((".pkl", ".pickle")):
-                    # --- handle pickle safely ---
-                    try:
-                        import pickletools, io as _io
-                        with open(path, "rb") as f:
-                            data = f.read()
-
-                        sio = _io.StringIO()
-                        try:
-                            pickletools.dis(data, out=sio)
-                            content = "[PICKLE_DISASSEMBLY]\n" + sio.getvalue()[:MAX_CHARS]
-                        except Exception:
-                            # fallback: extract raw printable strings
-                            strings = re.findall(rb"([ -~]{4,})", data)
-                            text = b"\n".join(strings).decode("utf-8", errors="replace")
-                            content = "[PICKLE_STRINGS]\n" + text[:MAX_CHARS]
-
-                    except Exception:
-                        content = "[binary or unreadable]"
-
+            try:
+                if name.lower().endswith('.docx'):
+                    # Convert .docx to text
+                    content = convert_docx_to_text(path)
                 else:
-                    # --- read plain text ---
-                    try:
-                        with open(path, "r", encoding="utf-8", errors="replace") as f:
-                            content = f.read(MAX_CHARS)
-                    except Exception:
-                        content = "[binary or unreadable]"
+                    # Skip non-.docx files
+                    content = "[Skipped: Only .docx files are processed]"
 
-            except Exception:
-                # --- OUTER SAFE FALLBACK ---
-                content = "[binary or unreadable]"
+            except Exception as e:
+                logger.error(f"Error processing file {name}: {e}")
+                content = f"[Error processing file: {e}]"
 
             file_summaries[name] = content
 
@@ -517,267 +530,101 @@ def submit_artifacts_to_policy(bundle_id: str, policy_id: str, matched_artifacts
     return results[-1] if results else {}
 
 
+def create_bundle_simple(bundle_name: str, policy_id: str) -> dict:
+    """Create a simple governance bundle without model version attachment."""
+    domain = DOMINO_DOMAIN.removeprefix("https://").removeprefix("http://")
+    url = f"https://{domain}/api/governance/v1/bundles"
+    headers = {
+        "accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Domino-Api-Key": DOMINO_API_KEY
+    }
+
+    payload = {
+        "attachments": [],
+        "name": bundle_name,
+        "policyId": policy_id,
+        "projectId": DOMINO_PROJECT_ID
+    }
+
+    try:
+        logger.info(f"Creating bundle: {bundle_name}")
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        bundle_data = response.json()
+        logger.info(f"Successfully created bundle: {bundle_data.get('id')}")
+        return bundle_data
+    except requests.RequestException as e:
+        logger.error(f"Failed to create bundle: {e}")
+        raise
+
+
 def register_model_handler(request, progress_queues):
-    """Handle model registration with security scanning and dynamic fields."""
+    """Handle governance data submission without model registration or security scanning."""
     logger.info("=" * 80)
-    logger.info("REGISTER EXTERNAL MODEL - Request Received")
+    logger.info("SUBMIT GOVERNANCE DATA - Request Received")
     logger.info("=" * 80)
-    
+
     temp_dir = None
     request_id = request.form.get("requestId", str(uuid.uuid4()))
-    
+
     try:
         # Get policy information
         policy_name = request.form.get("policyName")
         policy_id = request.form.get("policyId")
-        
+
         # Parse dynamic fields from JSON
         dynamic_fields_json = request.form.get("dynamicFields", "{}")
         dynamic_fields = json.loads(dynamic_fields_json)
-        
+
         logger.info(f"Policy Name: {policy_name}")
         logger.info(f"Policy ID: {policy_id}")
         logger.info(f"Dynamic Fields: {dynamic_fields}")
-        
+
         if not policy_id or not policy_name:
             return jsonify({"status": "error", "message": "Policy selection is required"}), 400
 
-        send_progress(request_id, 'policy', 'Retrieving policy details...', progress_queues, progress=5)
+        send_progress(request_id, 'policy', 'Retrieving policy details...', progress_queues, progress=10)
         policy_data = get_policy_details(policy_id)
-        
+
         files = request.files.getlist('files')
-        temp_dir = tempfile.mkdtemp(prefix=f"external_model_{policy_name}_")
+        temp_dir = tempfile.mkdtemp(prefix=f"governance_{policy_name}_")
         logger.info(f"Created temp directory: {temp_dir}")
-        
-        send_progress(request_id, 'upload', 'Saving uploaded files...', progress_queues, progress=10)
-        
+
+        send_progress(request_id, 'upload', 'Saving uploaded files...', progress_queues, progress=20)
+
         saved_files = save_uploaded_files(files, temp_dir)
         logger.info(f"Saved {len(saved_files)} files to temp directory")
-        
-        file_status = {}
-        model_pkl = None
-        signature_pkl = None
-        
-        # Extract commonly used fields from dynamic fields with proper normalization
-        model_name = dynamic_fields.get('model_name', '')
-        if not model_name:
-            # Try different variations
-            model_name = dynamic_fields.get('model-name', '')
-        if not model_name:
-            # Generate a default name if still empty
-            model_name = f'model_{int(time.time())}'
-            logger.warning(f"Model name not found in dynamic fields, using default: {model_name}")
-        
-        # Extract other fields with similar normalization
-        model_description = dynamic_fields.get('model_description', dynamic_fields.get('model-description', ''))
-        model_owner = dynamic_fields.get('model_owner', dynamic_fields.get('model-owner', ''))
-        model_use_case = dynamic_fields.get('model_use_case', dynamic_fields.get('model-use-case', ''))
-        model_usage_pattern = dynamic_fields.get('model_usage_pattern', dynamic_fields.get('model-usage-pattern', ''))
-        model_environment_id = dynamic_fields.get('model_environment_id', dynamic_fields.get('model-environment-id', ''))
-        model_execution_script = dynamic_fields.get('model_execution_script', dynamic_fields.get('model-execution-script', ''))
-        
-        logger.info(f"Extracted fields - Model Name: {model_name}, Owner: {model_owner}")
 
-        list_the_file_names_and_sizes = ''
+        # Extract text from .docx files
+        send_progress(request_id, 'extract', 'Extracting text from .docx files...', progress_queues, progress=30)
+        file_contents = {}
         for saved_file in saved_files:
             filepath = saved_file.get('path', '')
-            filesize = saved_file.get('size_bytes', '')
-            rel_path = str(Path(filepath).relative_to(temp_dir))
-            file_status[rel_path] = 'uploaded'
             filename = Path(filepath).name
-            
-            list_the_file_names_and_sizes += f"{filename}  -  {filesize} Bytes\n"
 
-            if filename == "model.pkl":
-                model_pkl = filepath
-            elif filename == "signature.pkl":
-                signature_pkl = filepath
+            if filename.lower().endswith('.docx'):
+                text_content = convert_docx_to_text(filepath)
+                file_contents[filename] = text_content
+                logger.info(f"Extracted text from {filename}: {len(text_content)} characters")
 
-        if not model_pkl:
-            return jsonify({"status": "error", "message": "model.pkl is required"}), 400
+        # Generate bundle name from timestamp or use a field from dynamic_fields
+        bundle_name = dynamic_fields.get('model_name', f"governance_bundle_{int(time.time())}")
 
-        send_progress(request_id, 'validate', 'Files uploaded successfully', progress_queues, progress=20, file_status=file_status)
-        
-        send_progress(request_id, 'security', 'Running security scan...', progress_queues, progress=25)
-        logger.info(f"Starting security scan on {temp_dir}")
-        semgrep_raw = run_semgrep_scan(temp_dir, config=DEFAULT_SEMGREP_CONFIG, timeout_sec=300)
-        security_scan_summary = summarize_semgrep(semgrep_raw)
-        logger.info(f"Security scan complete: {security_scan_summary['total_issues']} issues found")
-        send_progress(request_id, 'security', f"Security scan complete: {security_scan_summary['total_issues']} issues found", progress_queues, progress=30)
-        
-        exp = mlflow.set_experiment(EXPERIMENT_NAME)
-        experiment_id = exp.experiment_id
-        logger.info(f"Using MLflow experiment: {EXPERIMENT_NAME}")
-        
-        send_progress(request_id, 'mlflow', 'Starting MLflow run...', progress_queues, progress=35)
-        
-        with mlflow.start_run(run_name=f"{model_name}_registration_{int(time.time())}") as run:
-            run_id = run.info.run_id
-            logger.info(f"Started MLflow run: {run_id}")
-            
-            send_progress(request_id, 'params', 'Logging parameters...', progress_queues, progress=45)
-            
-            # Log all dynamic fields as parameters
-            for key, value in dynamic_fields.items():
-                if value is not None and value != '':
-                    # MLflow has a limit on param value length, truncate if needed
-                    param_value = str(value)[:250] if len(str(value)) > 250 else str(value)
-                    mlflow.log_param(key, param_value)
-            
-            # Add additional metadata
-            mlflow.log_param("policy_name", policy_name)
-            mlflow.log_param("policy_id", policy_id)
-            mlflow.log_param("registration_time", time.time())
-            mlflow.log_param("file_count", len(saved_files))
-            
-            mlflow.log_param("security_scan_total_issues", security_scan_summary['total_issues'])
-            mlflow.log_param("security_scan_high", security_scan_summary['high'])
-            mlflow.log_param("security_scan_medium", security_scan_summary['medium'])
-            mlflow.log_param("security_scan_low", security_scan_summary['low'])
-            
-            send_progress(request_id, 'artifacts', 'Logging artifacts...', progress_queues, progress=55)
-            for i, saved_file in enumerate(saved_files):
-                filepath = saved_file["path"]
-                rel_path = Path(filepath).relative_to(temp_dir)
-                artifact_dir = str(rel_path.parent) if rel_path.parent != Path(".") else None
-                mlflow.log_artifact(filepath, artifact_path=artifact_dir)
-                logger.info(f"Logged artifact: {rel_path}")
-                
-                file_status[str(rel_path)] = 'logged'
-                progress_val = 55 + (i + 1) / len(saved_files) * 10
-                send_progress(request_id, 'artifacts', f'Logged {rel_path}', progress_queues, progress=progress_val, file_status=file_status)
-            
-            send_progress(request_id, 'security_log', 'Logging security scan results...', progress_queues, progress=66)
-            
-            security_report_json_path = Path(temp_dir) / "security_scan_report.json"
-            with open(security_report_json_path, 'w') as f:
-                json.dump(security_scan_summary, f, indent=2)
-            mlflow.log_artifact(str(security_report_json_path), artifact_path="security")
-            logger.info("Logged security scan JSON report")
-            
-            html_report = generate_html_report(
-                security_scan_summary,
-                model_name=model_name,
-                scan_metadata={
-                    'model_owner': model_owner,
-                    'model_use_case': model_use_case
-                }
-            )
-            security_report_html_path = Path(temp_dir) / "security_scan_report.html"
-            with open(security_report_html_path, 'w', encoding='utf-8') as f:
-                f.write(html_report)
-            mlflow.log_artifact(str(security_report_html_path), artifact_path="security")
-            logger.info("Logged security scan HTML report")
-            
-            try:
-                security_report_pdf_path = Path(temp_dir) / "security_scan_report.pdf"
-                generate_pdf_from_html(str(security_report_html_path), str(security_report_pdf_path))
-                mlflow.log_artifact(str(security_report_pdf_path), artifact_path="security")
-                logger.info("Logged security scan PDF report")
-            except Exception as e:
-                logger.warning(f"Failed to generate PDF report (non-fatal): {e}")
-
-            send_progress(request_id, 'model', 'Registering model...', progress_queues, progress=70)
-            
-            # Validate model_name before registration
-            if not model_name or model_name.strip() == '':
-                raise ValueError("Model name cannot be empty. Please provide a Model Name in the form.")
-            
-            logger.info(f"Registering model with name: {model_name}")
-
-            if signature_pkl:
-                signature = joblib.load(signature_pkl)
-            else:
-                with open(model_pkl, "rb") as f:
-                    loaded_model = pickle.load(f)
-                
-                # Create sample data for signature inference
-                if hasattr(loaded_model, 'n_features_in_'):
-                    n_features = loaded_model.n_features_in_
-                    X_sample = pd.DataFrame([[0.0] * n_features])
-                else:
-                    X_sample = pd.DataFrame([[0.0, 0.0, 0.0]])
-                
-                # Infer signature
-                if hasattr(loaded_model, "predict_proba"):
-                    y_sample = loaded_model.predict_proba(X_sample)
-                else:
-                    y_sample = loaded_model.predict(X_sample)
-                signature = infer_signature(X_sample, y_sample)
-                            
-            # Log model using PicklePyFunc wrapper
-            model_info = mlflow.pyfunc.log_model(
-                artifact_path="model",
-                python_model=_create_pickle_pyfunc(),
-                artifacts={"model_pkl": str(model_pkl)},
-                pip_requirements=[],
-                signature=signature,
-                registered_model_name=model_name
-            )
-            
-            logger.info(f"Successfully logged model to MLflow: {model_info.model_uri}")
-        
-        send_progress(request_id, 'api', 'Updating model description...', progress_queues, progress=75)
-        model_data = update_model_description(model_name, model_description)
-        model_version = model_data.get("latestVersion", 1)
-        
-        send_progress(request_id, 'bundle', 'Creating governance bundle...', progress_queues, progress=80)
-        bundle_data = create_bundle(model_name, model_version, policy_id)
-        bundle_name = bundle_data.get("name", "")
+        send_progress(request_id, 'bundle', 'Creating governance bundle...', progress_queues, progress=50)
+        bundle_data = create_bundle_simple(bundle_name, policy_id)
         bundle_id = bundle_data.get("id", "")
         project_owner = bundle_data.get("projectOwner", "")
         project_name = bundle_data.get("projectName", "")
         project_id = bundle_data.get("projectId", "")
         stage = bundle_data.get("stage", "").lower().replace(" ", "-")
-        html_remote_path = f"security_scans/{bundle_name}_security_report.html"
-        pdf_remote_path = f"security_scans/{bundle_name}_security_report.pdf"
-        
-        try:
-            html_upload_result = upload_file_to_project(DOMINO_PROJECT_ID, str(security_report_html_path), html_remote_path)
-            pdf_upload_result = upload_file_to_project(DOMINO_PROJECT_ID, str(security_report_pdf_path), pdf_remote_path)
-    
-            logger.info("Security reports successfully uploaded to Domino project repository.")
-    
-            html_commit = html_upload_result.get("key")
-            pdf_commit = pdf_upload_result.get("key")
-            html_filename = html_upload_result.get("path")
-            pdf_filename = pdf_upload_result.get("path")
-    
-            html_attachment = attach_report_to_bundle(bundle_id, html_filename, html_commit)
-            pdf_attachment = attach_report_to_bundle(bundle_id, pdf_filename, pdf_commit)
-    
-            logger.info(f"Attached reports to bundle {bundle_id}: HTML({html_attachment.get('id')}), PDF({pdf_attachment.get('id')})")
-    
-        except Exception as e:
-            logger.error(f"Failed to upload or attach security reports to bundle: {e}", exc_info=True)
 
-        domain = DOMINO_DOMAIN.removeprefix("https://").removeprefix("http://")
-        experiment_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}"
-        experiment_run_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}/{run_id}"
-        model_artifacts_url = f"https://{domain}/experiments/{project_owner}/{project_name}/{experiment_id}/{run_id}?isdir=false&path=model%2FMLmodel&tab=Outputs"
-        model_card_url = f"https://{domain}/u/{project_owner}/{project_name}/model-registry/{model_name}/model-card?version={model_version}"
-        bundle_url = f"https://{domain}/u/{project_owner}/{project_name}/governance/bundle/{bundle_id}/policy/{policy_id}/evidence/stage/{stage}"
-        security_scan_url = f"https://{domain}/u/{project_owner}/{project_name}/view-file/{html_remote_path}"
-        
-        # Add file list to dynamic fields if not already present
-        dynamic_fields['list_the_file_names_and_sizes'] = list_the_file_names_and_sizes
-        dynamic_fields['were_all_files_uploaded'] = True
-        
-        # Add some default values if not provided
-        if 'model_version' not in dynamic_fields:
-            dynamic_fields['model_version'] = model_version
-        if 'executive_summary' not in dynamic_fields:
-            dynamic_fields['executive_summary'] = f"Executive Summary: {model_description}"
-        if 'does_this_model_use_thirdparty_components_or_services' not in dynamic_fields:
-            dynamic_fields['does_this_model_use_thirdparty_components_or_services'] = True
-        if 'ai_classification_level' not in dynamic_fields:
-            dynamic_fields['ai_classification_level'] = 2
-                
+        # Build matched artifacts from policy and dynamic fields
         stages = policy_data.get("stages", [])
-        
+
         matched_artifacts = []
         seen_keys = set()
-        
+
         for stage in stages:
             for evidence in stage.get("evidenceSet", []):
                 evidence_id = evidence.get("id")
@@ -785,28 +632,26 @@ def register_model_handler(request, progress_queues):
                     artifact_id = artifact.get("id")
                     label = artifact.get("details", {}).get("label")
                     input_type = artifact.get("details", {}).get("type")
-                    
+
                     if policy_id and evidence_id and artifact_id and label and input_type:
                         unique_key = (policy_id, evidence_id, artifact_id, label, input_type)
-                        
+
                         if unique_key not in seen_keys:
                             seen_keys.add(unique_key)
                             # Try to find matching value in dynamic fields
-                            # Normalize the label to match how frontend sends it
                             normalized_key = label.lower().replace(' ', '_').replace('?', '').replace(',', '').replace("'", '')
                             normalized_key_hyphen = normalized_key.replace('_', '-')
                             value = None
-                            
+
                             # Try different key variations
                             for field_key, field_value in dynamic_fields.items():
-                                # Check exact match or hyphen/underscore variations
-                                if (field_key == normalized_key or 
+                                if (field_key == normalized_key or
                                     field_key == normalized_key_hyphen or
                                     field_key.replace('-', '_') == normalized_key or
                                     field_key.replace('_', '-') == normalized_key_hyphen):
                                     value = field_value
                                     break
-                            
+
                             matched_artifacts.append({
                                 'bundle_id': bundle_id,
                                 'policy_id': policy_id,
@@ -816,56 +661,36 @@ def register_model_handler(request, progress_queues):
                                 'input_type': input_type,
                                 'value': value
                             })
-        
-        print("\nMatched Policy Artifacts with Evidence Variables:")
+
+        logger.info("\nMatched Policy Artifacts with Evidence Variables:")
         for artifact in matched_artifacts:
             if artifact['value'] is not None:
-                print(f"  {artifact['label']}: {artifact['value']}")
+                logger.info(f"  {artifact['label']}: {artifact['value']}")
 
-        send_progress(request_id, 'evidence', 'Submitting evidence to policy...', progress_queues, progress=90)
+        send_progress(request_id, 'evidence', 'Submitting evidence to policy...', progress_queues, progress=70)
         policy_submission_result = submit_artifacts_to_policy(bundle_id, policy_id, matched_artifacts)
         logger.info(f"Successfully submitted {len([a for a in matched_artifacts if a['value'] is not None])} artifacts to policy")
 
-        send_progress(request_id, 'endpoint', 'Registering model endpoint...', progress_queues, progress=95)
-        try:
-            
-            endpoint_data = register_endpoint(bundle_id, bundle_name, model_name, model_version)
-            endpoint_id = endpoint_data.get("id", "")
-        except Exception as e:
-            print('no endpoint created')
-            endpoint_id = 'no-endpoint-created'
-        endpoint_url = f"https://{domain}/models/{endpoint_id}/overview"
-
-        logger.info(f"Successfully registered endpoint: {endpoint_id}")
-
-        send_progress(request_id, 'complete', 'Registration complete!', progress_queues, progress=100)
+        send_progress(request_id, 'complete', 'Submission complete!', progress_queues, progress=100)
         send_progress(request_id, 'done', '', progress_queues, progress=100)
-        
+
         if temp_dir and Path(temp_dir).exists():
             shutil.rmtree(temp_dir)
             logger.info(f"Cleaned up temp directory: {temp_dir}")
-        
+
         logger.info("=" * 80)
-        
+
+        domain = DOMINO_DOMAIN.removeprefix("https://").removeprefix("http://")
+        bundle_url = f"https://{domain}/u/{project_owner}/{project_name}/governance/bundle/{bundle_id}/policy/{policy_id}/evidence/stage/{stage}"
+
         response_data = {
             "status": "success",
-            "message": "Model registered and bundle created successfully",
+            "message": "Governance data submitted successfully",
             "data": {
-                "model_name": model_name,
-                "model_version": model_version,
-                "run_id": run_id,
-                "experiment_name": EXPERIMENT_NAME,
                 "file_count": len(saved_files),
                 "bundle_id": bundle_id,
                 "bundle_name": bundle_data.get("name"),
-                "endpoint_id": endpoint_id,
-                "endpoint_url": endpoint_url,
-                "experiment_url": experiment_url,
-                "experiment_run_url": experiment_run_url,
-                "model_artifacts_url": model_artifacts_url,
-                "model_card_url": model_card_url,
                 "bundle_url": bundle_url,
-                "security_scan_url": security_scan_url,
                 "policy_name": policy_name,
                 "policy_id": policy_id,
                 "project_id": DOMINO_PROJECT_ID,
@@ -873,26 +698,18 @@ def register_model_handler(request, progress_queues):
                 "artifacts_submitted": len([a for a in matched_artifacts if a['value'] is not None])
             }
         }
-        
-        if security_scan_summary:
-            response_data["data"]["security_scan"] = {
-                "total_issues": security_scan_summary['total_issues'],
-                "high": security_scan_summary['high'],
-                "medium": security_scan_summary['medium'],
-                "low": security_scan_summary['low'],
-            }
-        
+
         return jsonify(response_data), 200
-        
+
     except Exception as e:
-        logger.error(f"Error registering model: {e}", exc_info=True)
+        logger.error(f"Error submitting governance data: {e}", exc_info=True)
         send_progress(request_id, 'error', f'Error: {str(e)}', progress_queues, progress=0)
         send_progress(request_id, 'done', '', progress_queues, progress=0)
-        
+
         if temp_dir and Path(temp_dir).exists():
             shutil.rmtree(temp_dir)
-        
+
         return jsonify({
             "status": "error",
-            "message": f"Failed to register model: {str(e)}"
+            "message": f"Failed to submit governance data: {str(e)}"
         }), 500

@@ -220,10 +220,15 @@ function handlePolicyChange(event) {
 function handleFileUpload(event) {
     const files = Array.from(event.target.files)
         .filter(file => {
-            const name = file.webkitRelativePath || file.name;
-            return !name.split('/').some(part => part.startsWith('.'));
+            const name = file.name;
+            return name.toLowerCase().endsWith('.docx');
         });
-    
+
+    if (files.length === 0 && event.target.files.length > 0) {
+        showErrors(['Please upload only .docx files']);
+        return;
+    }
+
     appState.uploadedFiles = files;
     displayUploadedFiles();
 }
@@ -306,7 +311,7 @@ function validateForm() {
     }
     
     if (appState.uploadedFiles.length === 0) {
-        errors.push('Please upload model files');
+        errors.push('Please upload a .docx file');
         document.getElementById('model-upload').classList.add('error');
     } else {
         document.getElementById('model-upload').classList.remove('error');
@@ -351,20 +356,20 @@ function showErrors(errors) {
 // Show loading state
 function showLoading(button) {
     button.disabled = true;
-    button.innerHTML = '<span class="spinner"></span> Registering Model...';
-    
+    button.innerHTML = '<span class="spinner"></span> Submitting...';
+
     // Create progress container under the button
     const progressContainer = document.createElement('div');
     progressContainer.id = 'progress-container';
     progressContainer.className = 'progress-container';
-    
+
     progressContainer.innerHTML = `
         <div class="progress-bar-container">
             <div class="progress-bar" style="width: 0%"></div>
         </div>
         <div class="progress-message">Initializing...</div>
     `;
-    
+
     // Insert after the form actions
     const formActions = document.querySelector('.form-actions');
     formActions.after(progressContainer);
@@ -402,8 +407,8 @@ function updateProgress(data) {
 // Hide loading state
 function hideLoading(button) {
     button.disabled = false;
-    button.innerHTML = 'Register AI Use Case';
-    
+    button.innerHTML = 'Submit Governance Data';
+
     const progressContainer = document.getElementById('progress-container');
     if (progressContainer) {
         setTimeout(() => {
@@ -416,95 +421,41 @@ function hideLoading(button) {
 // Show success message
 function showSuccess(result) {
     const successContainer = document.getElementById('success-message');
-    
+
     if (!result) {
         successContainer.innerHTML = `
             <div class="success-box">
-                <h3>✓ Model Registered Successfully</h3>
-                <p>Your model has been registered with Domino.</p>
+                <h3>✓ Governance Data Submitted Successfully</h3>
+                <p>Your governance data has been submitted.</p>
             </div>
         `;
         successContainer.style.display = 'block';
         return;
     }
-    
+
     const isSuccess = result.status === 'success';
     const statusColor = isSuccess ? '#10b981' : '#ef4444';
     const statusText = result.status || 'unknown';
-    
+
     const linksHtml = result.data ? `
         <div class="model-links">
             <h4>Quick Links:</h4>
             <div class="link-buttons-grid">
-                ${result.data.security_scan_url ? `
-                    <a href="${result.data.security_scan_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-shield-halved"></i>
-                        <span>Security Scan</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
                 ${result.data.bundle_url ? `
                     <a href="${result.data.bundle_url}" target="_blank" rel="noopener noreferrer" class="link-button">
                         <i class="icon fas fa-clipboard-list"></i>
-                        <span>Intake Bundle</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.endpoint_url ? `
-                    <a href="${result.data.endpoint_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-plug"></i>
-                        <span>REST Endpoint</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.model_card_url ? `
-                    <a href="${result.data.model_card_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-id-card"></i>
-                        <span>Model Card</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.model_artifacts_url ? `
-                    <a href="${result.data.model_artifacts_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-cube"></i>
-                        <span>Model Artifacts</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.experiment_run_url ? `
-                    <a href="${result.data.experiment_run_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-play-circle"></i>
-                        <span>Experiment Run</span>
-                        <i class="external-icon fas fa-external-link-alt"></i>
-                    </a>
-                ` : ''}
-                ${result.data.experiment_url ? `
-                    <a href="${result.data.experiment_url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                        <i class="icon fas fa-flask"></i>
-                        <span>Experiment</span>
+                        <span>Governance Bundle</span>
                         <i class="external-icon fas fa-external-link-alt"></i>
                     </a>
                 ` : ''}
             </div>
         </div>
     ` : '';
-    
+
     const infoHtml = result.data ? `
         <div class="model-info">
-            <h4>Registration Results:</h4>
+            <h4>Submission Results:</h4>
             <div class="info-grid">
-                ${result.data.model_name ? `
-                    <div class="info-item">
-                        <span class="info-label">Model Name:</span>
-                        <span class="info-value">${result.data.model_name}</span>
-                    </div>
-                ` : ''}
-                ${result.data.model_version !== undefined ? `
-                    <div class="info-item">
-                        <span class="info-label">Model Version:</span>
-                        <span class="info-value">${result.data.model_version}</span>
-                    </div>
-                ` : ''}
                 ${result.data.bundle_name ? `
                     <div class="info-item">
                         <span class="info-label">Bundle Name:</span>
@@ -515,18 +466,6 @@ function showSuccess(result) {
                     <div class="info-item">
                         <span class="info-label">Bundle ID:</span>
                         <span class="info-value">${result.data.bundle_id}</span>
-                    </div>
-                ` : ''}
-                ${result.data.experiment_name ? `
-                    <div class="info-item">
-                        <span class="info-label">Experiment Name:</span>
-                        <span class="info-value">${result.data.experiment_name}</span>
-                    </div>
-                ` : ''}
-                ${result.data.run_id ? `
-                    <div class="info-item">
-                        <span class="info-label">Experiment Run ID:</span>
-                        <span class="info-value">${result.data.run_id}</span>
                     </div>
                 ` : ''}
                 ${result.data.policy_name ? `
@@ -556,10 +495,10 @@ function showSuccess(result) {
             </div>
         </div>
     ` : '';
-    
+
     successContainer.innerHTML = `
         <div class="success-box">
-            <h3>✓ Model Registration Complete</h3>
+            <h3>✓ Governance Submission Complete</h3>
             <div class="status-line">
                 <span class="status-label">Status:</span>
                 <span class="status-value" style="color: ${statusColor}; font-weight: bold;">${statusText}</span>
@@ -684,7 +623,7 @@ async function handleAssistGovernance(event) {
     }
 
     if (appState.uploadedFiles.length === 0) {
-        showErrors(['Please upload model files first']);
+        showErrors(['Please upload a .docx file first']);
         return;
     }
 
@@ -1093,10 +1032,10 @@ function initializeForm() {
                         </div>
                         
                         <div class="form-group">
-                            <label for="model-upload">Upload Model Folder <span class="required">*</span></label>
-                            <input type="file" id="model-upload" webkitdirectory directory multiple required style="display: none;">
-                            <button type="button" class="btn btn-upload" onclick="document.getElementById('model-upload').click()">Choose Files</button>
-                            <p class="help-text">Upload a folder containing model.pkl, requirements.txt, metadata.json, and inference.py</p>
+                            <label for="model-upload">Upload .docx File <span class="required">*</span></label>
+                            <input type="file" id="model-upload" accept=".docx" multiple required style="display: none;">
+                            <button type="button" class="btn btn-upload" onclick="document.getElementById('model-upload').click()">Choose .docx File(s)</button>
+                            <p class="help-text">Upload one or more .docx files containing your governance information</p>
                         </div>
                         
                         <div id="uploaded-files-display" class="files-display">
@@ -1107,7 +1046,7 @@ function initializeForm() {
                             <button type="button" class="btn btn-ai" id="assist-governance-button" title="Autofill Fields">
                                 <img src="${AI_ICON_URL}" alt="ai" class="ai-inline-icon" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;">Autofill Fields
                             </button>
-                            <button type="submit" class="btn btn-primary">Register AI Use Case</button>
+                            <button type="submit" class="btn btn-primary">Submit Governance Data</button>
                             <button type="button" class="btn btn-secondary" onclick="resetForm()">Reset</button>
                         </div>
                     </div>
