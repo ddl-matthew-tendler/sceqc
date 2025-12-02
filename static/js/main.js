@@ -14,7 +14,7 @@ const AI_ICON_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(AI_ICON_SVG)
 
 // Hardcoded policy IDs
 const POLICY_IDS = {
-    'AI Use Case Intake': '4a8da911-bb6b-480d-a5a9-9918550c741e',
+    'AI Use Case Intake': '52ae4893-e274-4811-9a0b-37313814231f',
     'External Model Upload': '42c9adf3-f233-470b-b186-107496d0eb05',
     'Internal Model Intake': '5f913214-e0ec-4fae-9f78-930a9bd918b4',
 };
