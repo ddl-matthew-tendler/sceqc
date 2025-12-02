@@ -19,6 +19,8 @@ import pandas as pd
 from flask import jsonify
 from mlflow.pyfunc import PythonModel
 from mlflow.models.signature import infer_signature
+from mlflow.deployments import get_deploy_client
+import mlflow
 
 try:
     from docx import Document
@@ -46,7 +48,7 @@ def domino_short_id(length: int = 8) -> str:
     return f"{user}_{encoded[:length]}"
 
 
-EXPERIMENT_NAME = f"external_models_{domino_short_id(4)}"
+EXPERIMENT_NAME = f"AI_tracings_{domino_short_id(4)}"
 
 
 def _create_pickle_pyfunc():
@@ -187,6 +189,13 @@ def convert_docx_to_text(docx_path: str) -> str:
         logger.error(f"Error converting .docx to text: {e}")
         return f"[Error reading .docx file: {e}]"
 
+
+@mlflow.trace(name="gateway_llm_call")
+def call_gateway_llm(endpoint, payload):    
+    client = get_deploy_client(os.environ["DOMINO_MLFLOW_DEPLOYMENTS"])
+    return client.predict(endpoint=endpoint, inputs=payload)
+
+
 def assist_governance_handler(request):
     """Use a Domino gateway LLM to suggest values for governance policy fields based on uploaded files.
 
@@ -308,23 +317,37 @@ def assist_governance_handler(request):
         # -----------------------------
         # CALL LLM
         # -----------------------------
-        from mlflow.deployments import get_deploy_client
-        client = get_deploy_client(os.environ["DOMINO_MLFLOW_DEPLOYMENTS"])
         endpoint = os.environ.get("DOMINO_GATEWAY_LLM_ENDPOINT", "fsi-chatbot")
+        exp = mlflow.set_experiment(EXPERIMENT_NAME)
+        experiment_id = exp.experiment_id
+        temp = 0
+        top_p = 0.1
+        max_tokens = 1000
 
-        response = client.predict(
-            endpoint=endpoint,
-            inputs={
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": full_user_prompt},
-                ],
-                "temperature": 0,
-                "top_p": 0.1,
-                "seed": 42,
-                "max_tokens": 1000
-            },
-        )
+        with mlflow.start_run() as run:
+            mlflow.log_param("experiment_id", experiment_id)
+            mlflow.log_param("endpoint", endpoint)
+            mlflow.log_param("temp", temp)
+            mlflow.log_param("top_p", top_p)
+            mlflow.log_param("max_tokens", max_tokens)
+
+            response = call_gateway_llm(
+                endpoint,
+                {
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": full_user_prompt},
+                    ],
+                    "temperature": temp,
+                    "top_p": top_p,
+                    "seed": 42,
+                    "max_tokens": max_tokens
+                }
+            )
+            mlflow.log_param("model_name", response['model'])
+            mlflow.log_metric("prompt_tokens", response['usage']['prompt_tokens'])
+            mlflow.log_metric("completion_tokens", response['usage']['completion_tokens'])
+            mlflow.log_metric("total_tokens", response['usage']['total_tokens'])
 
         # -----------------------------
         # EXTRACT RAW STRING RESPONSE
@@ -344,11 +367,7 @@ def assist_governance_handler(request):
             suggestions_str = json.dumps(suggestions_raw)
         else:
             suggestions_str = str(suggestions_raw)
-        print('9'*80)
-        print(suggestions_str)
-        # -----------------------------
-        # PARSE JSON SAFELY
-        # -----------------------------
+
         try:
             suggestions = json.loads(suggestions_str)
         except Exception:
@@ -585,10 +604,6 @@ def register_model_handler(request, progress_queues):
     request_id = request.form.get("requestId", str(uuid.uuid4()))
 
     try:
-        # Get policy information
-        policy_name = request.form.get("policyName")
-        policy_id = request.form.get("policyId")
-
         # Parse dynamic fields from JSON
         dynamic_fields_json = request.form.get("dynamicFields", "{}")
         dynamic_fields = json.loads(dynamic_fields_json)
