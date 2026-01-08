@@ -30,7 +30,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-DOMINO_DOMAIN = os.environ.get("DOMINO_DOMAIN", "se-demo.domino.tech")
+DOMINO_DOMAIN = os.environ.get("DOMINO_API_HOST") or os.environ.get("DOMINO_DOMAIN")
 DOMINO_API_KEY = os.environ.get("DOMINO_USER_API_KEY", "")
 DOMINO_PROJECT_ID = os.environ.get("DOMINO_PROJECT_ID", "")
 
