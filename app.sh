@@ -1,35 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# usage: PORT=8501 bash app.sh
+# Usage:
+#   PORT=8501 bash app.sh
+#   or: bash app.sh 8501
+
 PORT="${PORT:-${1:-8888}}"
 DOMINO_DOMAIN="${DOMINO_DOMAIN:-https://ksm.domino.tech}"
 
-# 1) Kill anything listening on $PORT via fuser (works where ss/lsof aren’t available)
+echo "========================================="
+echo "Starting Flask application"
+echo "Port: ${PORT}"
+echo "========================================="
+
+# ------------------------------------------------------------
+# 1) Kill anything already listening on this port (best effort)
+# ------------------------------------------------------------
 if command -v fuser &>/dev/null; then
-  echo "Killing any process on port $PORT…"
+  echo "Killing any process listening on port ${PORT}..."
   fuser -k "${PORT}/tcp" || true
   sleep 1
 else
-  echo "fuser not found, skipping port kill."
+  echo "fuser not available, skipping port cleanup."
 fi
 
-# 2) Also kill any stray Streamlit / Flask / app.py
-pkill -f streamlit 2>/dev/null && echo "Killed existing Streamlit processes."
-pkill -f flask      2>/dev/null && echo "Killed existing Flask processes."
-pkill -f app.py     2>/dev/null && echo "Killed existing app.py processes."
+# Also clean up common stray processes (best effort)
+pkill -f "flask run"   2>/dev/null || true
+pkill -f "python app.py" 2>/dev/null || true
 
-# 3) Show the Domino proxy URL
+# ------------------------------------------------------------
+# 2) Print the Domino proxy URL (this is the one to open)
+# ------------------------------------------------------------
 if [ -n "${DOMINO_RUN_HOST_PATH:-}" ]; then
-  CLEAN_PATH=$(echo "$DOMINO_RUN_HOST_PATH" | sed 's|/r||g')
+  CLEAN_PATH="$(echo "${DOMINO_RUN_HOST_PATH}" | sed 's|/r||g')"
   URL="${DOMINO_DOMAIN}${CLEAN_PATH}proxy/${PORT}/"
+  echo
   echo "========================================="
-  echo "Flask URL: $URL"
+  echo "Flask URL (open this in your browser):"
+  echo "${URL}"
   echo "========================================="
+  echo
 else
-  echo "DOMINO_RUN_HOST_PATH not set — running locally at http://0.0.0.0:${PORT}"
+  echo "DOMINO_RUN_HOST_PATH not set."
+  echo "App will be available locally at: http://0.0.0.0:${PORT}"
 fi
 
-# 4) Launch your Flask app
+# ------------------------------------------------------------
+# 3) Launch Flask (THIS is the critical missing piece)
+# ------------------------------------------------------------
 export FLASK_APP=app.py
-python app.py
+export FLASK_ENV=development
+
+echo "Launching Flask on 0.0.0.0:${PORT} ..."
+exec python -m flask run \
+  --host=0.0.0.0 \
+  --port="${PORT}"
