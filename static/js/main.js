@@ -12,18 +12,12 @@ const AI_ICON_SVG = `
 `;
 const AI_ICON_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(AI_ICON_SVG);
 
-// Hardcoded policy IDs
-const POLICY_IDS = {
-    'AI Use Case Intake': '52ae4893-e274-4811-9a0b-37313814231f',
-    'External Model Upload': '42c9adf3-f233-470b-b186-107496d0eb05',
-    'Internal Model Intake': '5f913214-e0ec-4fae-9f78-930a9bd918b4',
-};
-
 // Global state
 let appState = {
     uploadedFiles: [],
     formData: {},
     policies: {},
+    policyList: [],
     selectedPolicy: null
 };
 
@@ -71,16 +65,61 @@ async function fetchPolicyDetails(policyId) {
     }
 }
 
+// Fetch all policy overviews from the API
+async function fetchPolicyOverviews() {
+    try {
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        const response = await fetch(`${basePath}/api/policies`);
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch policies: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.data || [];
+    } catch (error) {
+        console.error('Error fetching policy overviews:', error);
+        return [];
+    }
+}
+
 // Load all policies on startup
 async function loadPolicies() {
     console.log('Loading policies...');
-    for (const [name, id] of Object.entries(POLICY_IDS)) {
-        const policy = await fetchPolicyDetails(id);
-        if (policy) {
-            appState.policies[name] = policy;
-            console.log(`Loaded policy: ${name}`, policy);
-        }
-    }
+
+    // Fetch all policy overviews
+    const policyOverviews = await fetchPolicyOverviews();
+    appState.policyList = policyOverviews;
+
+    console.log(`Fetched ${policyOverviews.length} policies`);
+
+    // Populate the dropdown
+    updatePolicyDropdown();
+}
+
+// Update the policy dropdown with fetched policies
+function updatePolicyDropdown() {
+    const policySelector = document.getElementById('policy-selector');
+    if (!policySelector) return;
+
+    // Clear existing options except the first one
+    policySelector.innerHTML = '<option value="">-- Select a Policy --</option>';
+
+    // Add options for each policy, sorted by name
+    const sortedPolicies = [...appState.policyList].sort((a, b) =>
+        a.name.localeCompare(b.name)
+    );
+
+    sortedPolicies.forEach(policy => {
+        const option = document.createElement('option');
+        option.value = policy.id;
+        option.textContent = policy.name;
+        option.setAttribute('data-policy-id', policy.id);
+        option.setAttribute('data-policy-name', policy.name);
+        policySelector.appendChild(option);
+    });
+
+    console.log(`Added ${sortedPolicies.length} policies to dropdown`);
 }
 
 // Convert label to field ID
@@ -208,13 +247,41 @@ function generateDynamicFields(policy) {
 }
 
 // Handle policy selection change
-function handlePolicyChange(event) {
-    const selectedPolicyName = event.target.value;
-    appState.selectedPolicy = selectedPolicyName;
-    
-    const policy = appState.policies[selectedPolicyName];
+async function handlePolicyChange(event) {
+    const selectedPolicyId = event.target.value;
+
+    if (!selectedPolicyId) {
+        appState.selectedPolicy = null;
+        const container = document.getElementById('dynamic-fields');
+        container.innerHTML = '<p>Please select a governance policy to see the required fields</p>';
+        return;
+    }
+
+    // Get policy name from the selected option
+    const selectedOption = event.target.options[event.target.selectedIndex];
+    const policyName = selectedOption.getAttribute('data-policy-name');
+
+    appState.selectedPolicy = {
+        id: selectedPolicyId,
+        name: policyName
+    };
+
+    // Check if we already have the policy details
+    if (appState.policies[selectedPolicyId]) {
+        generateDynamicFields(appState.policies[selectedPolicyId]);
+        return;
+    }
+
+    // Fetch policy details
+    const container = document.getElementById('dynamic-fields');
+    container.innerHTML = '<p>Loading policy details...</p>';
+
+    const policy = await fetchPolicyDetails(selectedPolicyId);
     if (policy) {
+        appState.policies[selectedPolicyId] = policy;
         generateDynamicFields(policy);
+    } else {
+        container.innerHTML = '<p class="error">Failed to load policy details. Please try again.</p>';
     }
 }
 
@@ -526,16 +593,20 @@ function showSuccess(result) {
 function resetForm() {
     document.getElementById('model-upload-form').reset();
     appState.uploadedFiles = [];
+    appState.selectedPolicy = null;
     displayUploadedFiles();
     showErrors([]);
     document.getElementById('success-message').innerHTML = '';
     document.getElementById('success-message').style.display = 'none';
-    
-    // Reset to first policy
+
+    // Reset to first policy (empty selection)
     const policySelector = document.getElementById('policy-selector');
     if (policySelector) {
         policySelector.selectedIndex = 0;
-        handlePolicyChange({ target: policySelector });
+        const dynamicContainer = document.getElementById('dynamic-fields');
+        if (dynamicContainer) {
+            dynamicContainer.innerHTML = '<p>Please select a governance policy to see the required fields</p>';
+        }
     }
     
     const progressContainer = document.getElementById('progress-container');
@@ -589,10 +660,10 @@ async function handleSubmit(event) {
     try {
         // Collect form data
         const formData = new FormData();
-        
+
         formData.append('requestId', requestId);
-        formData.append('policyName', appState.selectedPolicy);
-        formData.append('policyId', POLICY_IDS[appState.selectedPolicy]);
+        formData.append('policyName', appState.selectedPolicy.name);
+        formData.append('policyId', appState.selectedPolicy.id);
         
         // Collect and append all dynamic fields
         const dynamicFields = collectDynamicFields();
@@ -689,11 +760,11 @@ async function handleAssistGovernance(event) {
 
     try {
         const formData = new FormData();
-        formData.append('policyName', appState.selectedPolicy);
-        formData.append('policyId', POLICY_IDS[appState.selectedPolicy]);
+        formData.append('policyName', appState.selectedPolicy.name);
+        formData.append('policyId', appState.selectedPolicy.id);
 
         // Attach the full policy JSON if available
-        const policyObj = appState.policies[appState.selectedPolicy] || null;
+        const policyObj = appState.policies[appState.selectedPolicy.id] || null;
         if (policyObj) {
             formData.append('policy', JSON.stringify(policyObj));
         }
@@ -1039,9 +1110,6 @@ function initializeForm() {
                             <label for="policy-selector">Select Governance Policy <span class="required">*</span></label>
                             <select id="policy-selector" name="policySelector" required>
                                 <option value="">-- Select a Policy --</option>
-                                ${Object.keys(POLICY_IDS).map(name => 
-                                    `<option value="${name}">${name}</option>`
-                                ).join('')}
                             </select>
                         </div>
                         

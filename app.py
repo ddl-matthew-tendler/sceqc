@@ -132,6 +132,35 @@ def assist_governance():
     return assist_governance_handler(request)
 
 
+@app.route("/api/policies", methods=["GET"])
+def get_policies():
+    """Fetch all governance policies from the Domino API."""
+    try:
+        url = f"https://{DOMINO_DOMAIN}/api/governance/v1/policy-overviews"
+        headers = {
+            'X-Domino-Api-Key': DOMINO_API_KEY,
+            'accept': 'application/json'
+        }
+
+        logger.info(f"Fetching policies from: {url}")
+        response = requests.get(url, headers=headers, timeout=30)
+
+        if not response.ok:
+            logger.error(f"Failed to fetch policies: {response.status_code}")
+            return jsonify({"error": f"Failed to fetch policies: {response.status_code}"}), response.status_code
+
+        data = response.json()
+        logger.info(f"Successfully fetched {len(data.get('data', []))} policies")
+        return jsonify(data)
+
+    except requests.RequestException as e:
+        logger.error(f"Error fetching policies: {e}")
+        return jsonify({"error": f"Error fetching policies: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
 def safe_domino_config():
     """Return sanitized Domino configuration for templates."""
     return {
