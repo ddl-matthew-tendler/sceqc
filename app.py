@@ -224,6 +224,42 @@ def update_stage_assignee(bundle_id, stage_id):
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
+@app.route("/api/users", methods=["GET"])
+def get_users():
+    """Fetch all users from the Domino API for assignee dropdowns."""
+    try:
+        url = f"https://{DOMINO_DOMAIN}/admin/user-management/users"
+        headers = {
+            'X-Domino-Api-Key': DOMINO_API_KEY,
+            'accept': 'application/json'
+        }
+
+        # Fetch with a high limit to get all users
+        params = {
+            'limit': 500,
+            'offset': 0
+        }
+
+        logger.info(f"Fetching users from: {url}")
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+
+        if not response.ok:
+            logger.error(f"Failed to fetch users: {response.status_code}")
+            return jsonify({"error": f"Failed to fetch users: {response.status_code}"}), response.status_code
+
+        data = response.json()
+        users = data.get('users', [])
+        logger.info(f"Successfully fetched {len(users)} users")
+        return jsonify({"users": users})
+
+    except requests.RequestException as e:
+        logger.error(f"Error fetching users: {e}")
+        return jsonify({"error": f"Error fetching users: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
 def safe_domino_config():
     """Return sanitized Domino configuration for templates."""
     return {

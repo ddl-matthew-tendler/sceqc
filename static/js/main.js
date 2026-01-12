@@ -22,6 +22,7 @@ let appState = {
     // Bundles dashboard state
     currentView: 'bundles', // 'bundles' | 'register'
     bundles: [],
+    users: [],
     bundleFilters: {
         search: '',
         policy: '',
@@ -29,7 +30,8 @@ let appState = {
         stage: ''
     },
     bundleSortColumn: 'createdAt',
-    bundleSortDirection: 'desc'
+    bundleSortDirection: 'desc',
+    activeDropdown: null  // Track active assignee dropdown
 };
 
 // Helper function to format file size
@@ -1126,6 +1128,151 @@ async function fetchBundles() {
     }
 }
 
+// Fetch all users from the API for assignee dropdowns
+async function fetchUsers() {
+    try {
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        const response = await fetch(`${basePath}/api/users`);
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch users: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.users || [];
+    } catch (error) {
+        console.error('Error fetching users:', error);
+        return [];
+    }
+}
+
+// Update assignee for a bundle stage
+async function updateStageAssignee(bundleId, stageId, userId) {
+    try {
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        const response = await fetch(`${basePath}/api/bundles/${bundleId}/stages/${stageId}/assignee`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ assigneeId: userId || null })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to update assignee: ${response.status}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error updating assignee:', error);
+        throw error;
+    }
+}
+
+// Show assignee dropdown for a stage
+function showAssigneeDropdown(event, bundleId, stageId, currentAssigneeId) {
+    event.stopPropagation();
+
+    // Close any existing dropdown
+    closeAssigneeDropdown();
+
+    const targetCell = event.target.closest('.assignee-cell');
+    if (!targetCell) return;
+
+    // Mark dropdown as active
+    appState.activeDropdown = { bundleId, stageId };
+
+    // Create dropdown element
+    const dropdown = document.createElement('div');
+    dropdown.className = 'assignee-dropdown';
+    dropdown.id = 'active-assignee-dropdown';
+
+    // Build options from users
+    const sortedUsers = [...appState.users].sort((a, b) =>
+        (a.fullName || a.username || '').localeCompare(b.fullName || b.username || '')
+    );
+
+    const optionsHtml = `
+        <div class="dropdown-header">
+            <span>Assign to</span>
+            <button class="dropdown-close" onclick="closeAssigneeDropdown()">&times;</button>
+        </div>
+        <div class="dropdown-search">
+            <input type="text" placeholder="Search users..." onkeyup="filterAssigneeDropdown(this.value)">
+        </div>
+        <div class="dropdown-options">
+            <div class="dropdown-option ${!currentAssigneeId ? 'selected' : ''}"
+                 onclick="selectAssignee('${bundleId}', '${stageId}', null)">
+                <span class="option-name">Unassigned</span>
+            </div>
+            ${sortedUsers.map(user => `
+                <div class="dropdown-option ${user.id === currentAssigneeId ? 'selected' : ''}"
+                     data-user-name="${escapeHtml((user.fullName || user.username || '').toLowerCase())}"
+                     onclick="selectAssignee('${bundleId}', '${stageId}', '${user.id}')">
+                    <span class="option-name">${escapeHtml(user.fullName || user.username)}</span>
+                    <span class="option-username">@${escapeHtml(user.username)}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    dropdown.innerHTML = optionsHtml;
+
+    // Position dropdown relative to cell
+    targetCell.style.position = 'relative';
+    targetCell.appendChild(dropdown);
+
+    // Focus search input
+    setTimeout(() => {
+        const searchInput = dropdown.querySelector('input');
+        if (searchInput) searchInput.focus();
+    }, 50);
+}
+
+// Filter assignee dropdown options
+function filterAssigneeDropdown(searchTerm) {
+    const dropdown = document.getElementById('active-assignee-dropdown');
+    if (!dropdown) return;
+
+    const options = dropdown.querySelectorAll('.dropdown-option[data-user-name]');
+    const term = searchTerm.toLowerCase();
+
+    options.forEach(option => {
+        const name = option.getAttribute('data-user-name') || '';
+        option.style.display = name.includes(term) ? '' : 'none';
+    });
+}
+
+// Close assignee dropdown
+function closeAssigneeDropdown() {
+    const dropdown = document.getElementById('active-assignee-dropdown');
+    if (dropdown) {
+        dropdown.remove();
+    }
+    appState.activeDropdown = null;
+}
+
+// Select assignee and update via API
+async function selectAssignee(bundleId, stageId, userId) {
+    const dropdown = document.getElementById('active-assignee-dropdown');
+    if (dropdown) {
+        // Show loading state
+        dropdown.innerHTML = '<div class="dropdown-loading"><span class="spinner"></span> Updating...</div>';
+    }
+
+    try {
+        await updateStageAssignee(bundleId, stageId, userId);
+
+        // Refresh bundles to show updated data
+        closeAssigneeDropdown();
+        await refreshBundles();
+
+    } catch (error) {
+        closeAssigneeDropdown();
+        alert(`Failed to update assignee: ${error.message}`);
+    }
+}
+
 // Format date for display
 function formatDate(dateString) {
     if (!dateString) return '--';
@@ -1357,14 +1504,22 @@ function renderStageAssignee(bundleId, stageData) {
     if (!stageData) return '--';
 
     const assigneeName = stageData.assignee?.name || 'Unassigned';
+    const assigneeId = stageData.assignee?.id || '';
     const stageId = stageData.stageId;
 
     return `
-        <span class="stage-assignee-display ${!stageData.assignee ? 'unassigned' : ''}"
-              data-bundle-id="${bundleId}"
-              data-stage-id="${stageId}">
-            ${escapeHtml(assigneeName)}
-        </span>
+        <div class="stage-assignee-wrapper">
+            <span class="stage-assignee-display ${!stageData.assignee ? 'unassigned' : ''}"
+                  data-bundle-id="${bundleId}"
+                  data-stage-id="${stageId}">
+                ${escapeHtml(assigneeName)}
+            </span>
+            <button class="assignee-edit-btn"
+                    onclick="showAssigneeDropdown(event, '${bundleId}', '${stageId}', '${assigneeId}')"
+                    title="Change assignee">
+                <i class="fas fa-pencil-alt"></i>
+            </button>
+        </div>
     `;
 }
 
@@ -1519,8 +1674,16 @@ async function initializeBundlesView() {
         </div>
     `;
 
-    // Fetch bundles
-    appState.bundles = await fetchBundles();
+    // Fetch bundles and users in parallel
+    const [bundles, users] = await Promise.all([
+        fetchBundles(),
+        fetchUsers()
+    ]);
+
+    appState.bundles = bundles;
+    appState.users = users;
+
+    console.log(`Loaded ${bundles.length} bundles and ${users.length} users`);
 
     // Update count
     const countEl = document.getElementById('bundle-count');
@@ -1536,6 +1699,13 @@ async function initializeBundlesView() {
 
     // Render table
     renderBundlesTable();
+
+    // Add click outside listener to close dropdowns
+    document.addEventListener('click', (event) => {
+        if (appState.activeDropdown && !event.target.closest('.assignee-dropdown') && !event.target.closest('.assignee-edit-btn')) {
+            closeAssigneeDropdown();
+        }
+    });
 }
 
 // Initialize register view (renamed from initializeForm's inner content)
