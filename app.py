@@ -161,6 +161,69 @@ def get_policies():
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
+@app.route("/api/bundles", methods=["GET"])
+def get_bundles():
+    """Fetch all governance bundles from the Domino API."""
+    try:
+        url = f"https://{DOMINO_DOMAIN}/api/governance/v1/bundles"
+        headers = {
+            'X-Domino-Api-Key': DOMINO_API_KEY,
+            'accept': 'application/json'
+        }
+
+        logger.info(f"Fetching bundles from: {url}")
+        response = requests.get(url, headers=headers, timeout=30)
+
+        if not response.ok:
+            logger.error(f"Failed to fetch bundles: {response.status_code}")
+            return jsonify({"error": f"Failed to fetch bundles: {response.status_code}"}), response.status_code
+
+        data = response.json()
+        logger.info(f"Successfully fetched {len(data.get('data', []))} bundles")
+        return jsonify(data)
+
+    except requests.RequestException as e:
+        logger.error(f"Error fetching bundles: {e}")
+        return jsonify({"error": f"Error fetching bundles: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/bundles/<bundle_id>/stages/<stage_id>/assignee", methods=["PUT"])
+def update_stage_assignee(bundle_id, stage_id):
+    """Update the assignee for a specific stage in a bundle."""
+    try:
+        data = request.get_json() or {}
+        assignee_id = data.get('assigneeId')
+
+        # Build the API URL - this may need adjustment based on the actual API
+        url = f"https://{DOMINO_DOMAIN}/api/governance/v1/bundles/{bundle_id}/stages/{stage_id}/assignee"
+        headers = {
+            'X-Domino-Api-Key': DOMINO_API_KEY,
+            'accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+
+        payload = {"assigneeId": assignee_id} if assignee_id else {"assigneeId": None}
+
+        logger.info(f"Updating assignee for bundle {bundle_id}, stage {stage_id}")
+        response = requests.put(url, headers=headers, json=payload, timeout=30)
+
+        if not response.ok:
+            logger.error(f"Failed to update assignee: {response.status_code}")
+            return jsonify({"error": f"Failed to update assignee: {response.status_code}"}), response.status_code
+
+        return jsonify(response.json() if response.content else {"success": True})
+
+    except requests.RequestException as e:
+        logger.error(f"Error updating assignee: {e}")
+        return jsonify({"error": f"Error updating assignee: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
 def safe_domino_config():
     """Return sanitized Domino configuration for templates."""
     return {

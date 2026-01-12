@@ -18,7 +18,18 @@ let appState = {
     formData: {},
     policies: {},
     policyList: [],
-    selectedPolicy: null
+    selectedPolicy: null,
+    // Bundles dashboard state
+    currentView: 'bundles', // 'bundles' | 'register'
+    bundles: [],
+    bundleFilters: {
+        search: '',
+        policy: '',
+        project: '',
+        stage: ''
+    },
+    bundleSortColumn: 'createdAt',
+    bundleSortDirection: 'desc'
 };
 
 // Helper function to format file size
@@ -1093,15 +1104,449 @@ function extractSuggestionsFromAssistResponse(data) {
     }
 }
 
-// Initialize form
-function initializeForm() {
+// ==========================================
+// BUNDLES DASHBOARD FUNCTIONS
+// ==========================================
+
+// Fetch all bundles from the API
+async function fetchBundles() {
+    try {
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        const response = await fetch(`${basePath}/api/bundles`);
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch bundles: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.data || [];
+    } catch (error) {
+        console.error('Error fetching bundles:', error);
+        return [];
+    }
+}
+
+// Format date for display
+function formatDate(dateString) {
+    if (!dateString) return '--';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+    });
+}
+
+// Get unique values for filter dropdowns
+function getUniqueFilterValues(bundles, key) {
+    const values = new Set();
+    bundles.forEach(bundle => {
+        let value;
+        if (key === 'policy') {
+            value = bundle.policyName;
+        } else if (key === 'project') {
+            value = bundle.projectName;
+        } else if (key === 'stage') {
+            value = bundle.stage;
+        }
+        if (value) values.add(value);
+    });
+    return Array.from(values).sort();
+}
+
+// Apply filters to bundles
+function applyBundleFilters(bundles) {
+    return bundles.filter(bundle => {
+        // Search filter
+        if (appState.bundleFilters.search) {
+            const searchLower = appState.bundleFilters.search.toLowerCase();
+            const nameMatch = bundle.name?.toLowerCase().includes(searchLower);
+            const projectMatch = bundle.projectName?.toLowerCase().includes(searchLower);
+            if (!nameMatch && !projectMatch) return false;
+        }
+
+        // Policy filter
+        if (appState.bundleFilters.policy && bundle.policyName !== appState.bundleFilters.policy) {
+            return false;
+        }
+
+        // Project filter
+        if (appState.bundleFilters.project && bundle.projectName !== appState.bundleFilters.project) {
+            return false;
+        }
+
+        // Stage filter
+        if (appState.bundleFilters.stage && bundle.stage !== appState.bundleFilters.stage) {
+            return false;
+        }
+
+        return true;
+    });
+}
+
+// Sort bundles
+function sortBundles(bundles) {
+    const { bundleSortColumn, bundleSortDirection } = appState;
+    const direction = bundleSortDirection === 'asc' ? 1 : -1;
+
+    return [...bundles].sort((a, b) => {
+        let aVal, bVal;
+
+        switch (bundleSortColumn) {
+            case 'name':
+                aVal = a.name?.toLowerCase() || '';
+                bVal = b.name?.toLowerCase() || '';
+                break;
+            case 'stage':
+                aVal = a.stage?.toLowerCase() || '';
+                bVal = b.stage?.toLowerCase() || '';
+                break;
+            case 'project':
+                aVal = a.projectName?.toLowerCase() || '';
+                bVal = b.projectName?.toLowerCase() || '';
+                break;
+            case 'policy':
+                aVal = a.policyName?.toLowerCase() || '';
+                bVal = b.policyName?.toLowerCase() || '';
+                break;
+            case 'createdAt':
+            default:
+                aVal = new Date(a.createdAt || 0).getTime();
+                bVal = new Date(b.createdAt || 0).getTime();
+                break;
+        }
+
+        if (aVal < bVal) return -1 * direction;
+        if (aVal > bVal) return 1 * direction;
+        return 0;
+    });
+}
+
+// Handle sort column click
+function handleBundleSort(column) {
+    if (appState.bundleSortColumn === column) {
+        appState.bundleSortDirection = appState.bundleSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        appState.bundleSortColumn = column;
+        appState.bundleSortDirection = 'asc';
+    }
+    renderBundlesTable();
+}
+
+// Handle filter change
+function handleBundleFilterChange(filterType, value) {
+    appState.bundleFilters[filterType] = value;
+    renderBundlesTable();
+}
+
+// Render the bundles table
+function renderBundlesTable() {
+    const tableContainer = document.getElementById('bundles-table-container');
+    if (!tableContainer) return;
+
+    let filteredBundles = applyBundleFilters(appState.bundles);
+    filteredBundles = sortBundles(filteredBundles);
+
+    const getSortIcon = (column) => {
+        if (appState.bundleSortColumn !== column) return '<i class="fas fa-sort"></i>';
+        return appState.bundleSortDirection === 'asc'
+            ? '<i class="fas fa-sort-up"></i>'
+            : '<i class="fas fa-sort-down"></i>';
+    };
+
+    const tableHtml = `
+        <table class="bundles-table">
+            <thead>
+                <tr>
+                    <th class="sortable" onclick="handleBundleSort('name')">
+                        Bundle Name ${getSortIcon('name')}
+                    </th>
+                    <th class="sortable" onclick="handleBundleSort('stage')">
+                        Current Stage ${getSortIcon('stage')}
+                    </th>
+                    <th class="sortable" onclick="handleBundleSort('project')">
+                        Project ${getSortIcon('project')}
+                    </th>
+                    <th>Current Stage Assignee</th>
+                    <th class="sortable" onclick="handleBundleSort('policy')">
+                        Policy ${getSortIcon('policy')}
+                    </th>
+                    <th class="sortable" onclick="handleBundleSort('createdAt')">
+                        Created ${getSortIcon('createdAt')}
+                    </th>
+                    <th>Stage 1</th>
+                    <th>Stage 1 Assignee</th>
+                    <th>Stage 2</th>
+                    <th>Stage 2 Assignee</th>
+                    <th>Stage 3</th>
+                    <th>Stage 3 Assignee</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${filteredBundles.length === 0 ? `
+                    <tr>
+                        <td colspan="12" class="empty-state">
+                            <div class="empty-message">
+                                <i class="fas fa-inbox"></i>
+                                <p>No bundles found</p>
+                            </div>
+                        </td>
+                    </tr>
+                ` : filteredBundles.map(bundle => renderBundleRow(bundle)).join('')}
+            </tbody>
+        </table>
+    `;
+
+    tableContainer.innerHTML = tableHtml;
+}
+
+// Render a single bundle row
+function renderBundleRow(bundle) {
+    const stages = bundle.stages || [];
+    const stage1 = stages[0];
+    const stage2 = stages[1];
+    const stage3 = stages[2];
+
+    const currentAssignee = bundle.stageAssignee?.name || '--';
+    const isComplete = bundle.state === 'Complete';
+
+    const stageBadgeClass = isComplete ? 'stage-badge complete' : 'stage-badge active';
+
+    // Build the bundle URL
+    const bundleUrl = `https://${ORIGINAL_API_BASE}/governance/bundles/${bundle.id}`;
+
+    return `
+        <tr class="bundle-row" data-bundle-id="${bundle.id}">
+            <td class="bundle-name">
+                <a href="${bundleUrl}" target="_blank" rel="noopener noreferrer" class="bundle-link">
+                    ${escapeHtml(bundle.name || 'Unnamed')}
+                    <i class="fas fa-external-link-alt external-icon"></i>
+                </a>
+            </td>
+            <td>
+                <span class="${stageBadgeClass}">${escapeHtml(bundle.stage || '--')}</span>
+            </td>
+            <td>
+                <span class="project-link">${escapeHtml(bundle.projectOwner || '')}/${escapeHtml(bundle.projectName || '')}</span>
+            </td>
+            <td class="assignee-cell">
+                <span class="assignee-name">${escapeHtml(currentAssignee)}</span>
+            </td>
+            <td>
+                <span class="policy-badge">${escapeHtml(bundle.policyName || '--')}</span>
+            </td>
+            <td class="date-cell">${formatDate(bundle.createdAt)}</td>
+            <td class="stage-name-cell">${stage1?.stage?.name ? escapeHtml(stage1.stage.name) : '--'}</td>
+            <td class="assignee-cell stage-assignee">
+                ${renderStageAssignee(bundle.id, stage1)}
+            </td>
+            <td class="stage-name-cell">${stage2?.stage?.name ? escapeHtml(stage2.stage.name) : '--'}</td>
+            <td class="assignee-cell stage-assignee">
+                ${renderStageAssignee(bundle.id, stage2)}
+            </td>
+            <td class="stage-name-cell">${stage3?.stage?.name ? escapeHtml(stage3.stage.name) : '--'}</td>
+            <td class="assignee-cell stage-assignee">
+                ${renderStageAssignee(bundle.id, stage3)}
+            </td>
+        </tr>
+    `;
+}
+
+// Render stage assignee with edit capability
+function renderStageAssignee(bundleId, stageData) {
+    if (!stageData) return '--';
+
+    const assigneeName = stageData.assignee?.name || 'Unassigned';
+    const stageId = stageData.stageId;
+
+    return `
+        <span class="stage-assignee-display ${!stageData.assignee ? 'unassigned' : ''}"
+              data-bundle-id="${bundleId}"
+              data-stage-id="${stageId}">
+            ${escapeHtml(assigneeName)}
+        </span>
+    `;
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Render filter bar
+function renderFilterBar() {
+    const policies = getUniqueFilterValues(appState.bundles, 'policy');
+    const projects = getUniqueFilterValues(appState.bundles, 'project');
+    const stages = getUniqueFilterValues(appState.bundles, 'stage');
+
+    return `
+        <div class="filter-bar">
+            <div class="filter-group">
+                <label for="search-filter">Search</label>
+                <input type="text"
+                       id="search-filter"
+                       placeholder="Search bundles..."
+                       value="${escapeHtml(appState.bundleFilters.search)}"
+                       onkeyup="handleBundleFilterChange('search', this.value)">
+            </div>
+            <div class="filter-group">
+                <label for="policy-filter">Policy</label>
+                <select id="policy-filter" onchange="handleBundleFilterChange('policy', this.value)">
+                    <option value="">All Policies</option>
+                    ${policies.map(p => `
+                        <option value="${escapeHtml(p)}" ${appState.bundleFilters.policy === p ? 'selected' : ''}>
+                            ${escapeHtml(p)}
+                        </option>
+                    `).join('')}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="project-filter">Project</label>
+                <select id="project-filter" onchange="handleBundleFilterChange('project', this.value)">
+                    <option value="">All Projects</option>
+                    ${projects.map(p => `
+                        <option value="${escapeHtml(p)}" ${appState.bundleFilters.project === p ? 'selected' : ''}>
+                            ${escapeHtml(p)}
+                        </option>
+                    `).join('')}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="stage-filter">Stage</label>
+                <select id="stage-filter" onchange="handleBundleFilterChange('stage', this.value)">
+                    <option value="">All Stages</option>
+                    ${stages.map(s => `
+                        <option value="${escapeHtml(s)}" ${appState.bundleFilters.stage === s ? 'selected' : ''}>
+                            ${escapeHtml(s)}
+                        </option>
+                    `).join('')}
+                </select>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="clearBundleFilters()">
+                <i class="fas fa-times"></i> Clear Filters
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="refreshBundles()">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+    `;
+}
+
+// Clear all filters
+function clearBundleFilters() {
+    appState.bundleFilters = {
+        search: '',
+        policy: '',
+        project: '',
+        stage: ''
+    };
+
+    // Update filter inputs
+    const searchInput = document.getElementById('search-filter');
+    if (searchInput) searchInput.value = '';
+
+    const policyFilter = document.getElementById('policy-filter');
+    if (policyFilter) policyFilter.value = '';
+
+    const projectFilter = document.getElementById('project-filter');
+    if (projectFilter) projectFilter.value = '';
+
+    const stageFilter = document.getElementById('stage-filter');
+    if (stageFilter) stageFilter.value = '';
+
+    renderBundlesTable();
+}
+
+// Refresh bundles from API
+async function refreshBundles() {
+    const tableContainer = document.getElementById('bundles-table-container');
+    if (tableContainer) {
+        tableContainer.innerHTML = '<div class="loading-state"><span class="spinner"></span> Loading bundles...</div>';
+    }
+
+    appState.bundles = await fetchBundles();
+    renderBundlesTable();
+
+    // Re-render filter bar to update dropdown options
+    const filterContainer = document.getElementById('filter-bar-container');
+    if (filterContainer) {
+        filterContainer.innerHTML = renderFilterBar();
+    }
+}
+
+// Switch between views
+function switchView(viewName) {
+    appState.currentView = viewName;
+
+    // Update nav tabs
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.view === viewName);
+    });
+
+    // Render the appropriate view
+    if (viewName === 'bundles') {
+        initializeBundlesView();
+    } else if (viewName === 'register') {
+        initializeRegisterView();
+    }
+}
+
+// Initialize the bundles dashboard view
+async function initializeBundlesView() {
     const container = document.querySelector('.container');
-    
+
+    container.innerHTML = `
+        <div class="dashboard-header">
+            <h1 class="welcome-title">Governance Bundles</h1>
+            <div class="header-actions">
+                <span class="bundle-count" id="bundle-count">Loading...</span>
+            </div>
+        </div>
+
+        <div id="filter-bar-container">
+            <div class="filter-bar">
+                <div class="loading-state"><span class="spinner"></span> Loading filters...</div>
+            </div>
+        </div>
+
+        <div class="table-wrapper">
+            <div id="bundles-table-container">
+                <div class="loading-state"><span class="spinner"></span> Loading bundles...</div>
+            </div>
+        </div>
+    `;
+
+    // Fetch bundles
+    appState.bundles = await fetchBundles();
+
+    // Update count
+    const countEl = document.getElementById('bundle-count');
+    if (countEl) {
+        countEl.textContent = `${appState.bundles.length} bundles`;
+    }
+
+    // Render filter bar
+    const filterContainer = document.getElementById('filter-bar-container');
+    if (filterContainer) {
+        filterContainer.innerHTML = renderFilterBar();
+    }
+
+    // Render table
+    renderBundlesTable();
+}
+
+// Initialize register view (renamed from initializeForm's inner content)
+function initializeRegisterView() {
+    const container = document.querySelector('.container');
+
     container.innerHTML = `
         <h1 class="welcome-title">Register AI Use Case</h1>
-        
+
         <div id="error-messages"></div>
-        
+
         <div class="form-layout">
             <form id="model-upload-form" class="model-form">
                 <div class="form-columns">
@@ -1112,18 +1557,18 @@ function initializeForm() {
                                 <option value="">-- Select a Policy --</option>
                             </select>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="model-upload">Upload .docx File <span class="required">*</span></label>
                             <input type="file" id="model-upload" accept=".docx" multiple required style="display: none;">
                             <button type="button" class="btn btn-upload" onclick="document.getElementById('model-upload').click()">Choose .docx File(s)</button>
                             <p class="help-text">Upload one or more .docx files containing your governance information</p>
                         </div>
-                        
+
                         <div id="uploaded-files-display" class="files-display">
                             <p class="no-files">No files uploaded yet</p>
                         </div>
-                        
+
                         <div class="form-actions">
                             <button type="button" class="btn btn-ai" id="assist-governance-button" title="Autofill Fields">
                                 <img src="${AI_ICON_URL}" alt="ai" class="ai-inline-icon" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;">Autofill Fields
@@ -1144,7 +1589,7 @@ function initializeForm() {
             </form>
         </div>
     `;
-    
+
     // Attach event listeners
     document.getElementById('model-upload').addEventListener('change', handleFileUpload);
     document.getElementById('model-upload-form').addEventListener('submit', handleSubmit);
@@ -1153,14 +1598,61 @@ function initializeForm() {
     if (assistBtn) {
         assistBtn.addEventListener('click', handleAssistGovernance);
     }
-    
-    // Load policies and set default
+
+    // Load policies
     loadPolicies().then(() => {
         console.log('Policies loaded successfully');
     });
 }
 
+// ==========================================
+// APP INITIALIZATION
+// ==========================================
+
+// Main app initialization
+function initializeApp() {
+    const container = document.querySelector('.container');
+
+    // Render navigation tabs
+    const navHtml = `
+        <div class="nav-tabs">
+            <button class="nav-tab ${appState.currentView === 'bundles' ? 'active' : ''}"
+                    data-view="bundles"
+                    onclick="switchView('bundles')">
+                <i class="fas fa-layer-group"></i> Bundles Dashboard
+            </button>
+            <button class="nav-tab ${appState.currentView === 'register' ? 'active' : ''}"
+                    data-view="register"
+                    onclick="switchView('register')">
+                <i class="fas fa-plus-circle"></i> Register AI Use Case
+            </button>
+        </div>
+    `;
+
+    // Insert nav before container content
+    const mainLayout = document.querySelector('.main-layout');
+    let navContainer = document.getElementById('nav-container');
+    if (!navContainer) {
+        navContainer = document.createElement('div');
+        navContainer.id = 'nav-container';
+        mainLayout.insertBefore(navContainer, container);
+    }
+    navContainer.innerHTML = navHtml;
+
+    // Initialize the default view
+    if (appState.currentView === 'bundles') {
+        initializeBundlesView();
+    } else {
+        initializeRegisterView();
+    }
+}
+
+// Initialize form (keep for compatibility but now calls initializeApp)
+function initializeForm() {
+    initializeApp();
+}
+
 // Initialize on DOM load
 document.addEventListener('DOMContentLoaded', initializeForm);
 
-console.log('Model upload form initialized');
+console.log('App initialized');

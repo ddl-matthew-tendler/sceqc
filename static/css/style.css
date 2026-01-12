@@ -922,3 +922,363 @@ label.auto-filled {
 .form-group select#policy-selector.error {
   border-color: var(--stop-fg);
 }
+
+/* =========================
+   NAVIGATION TABS
+   ========================= */
+
+#nav-container {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 var(--sp-3);
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: var(--sp-6);
+  padding-top: var(--sp-4);
+}
+
+.nav-tab {
+  padding: var(--sp-3) var(--sp-5);
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--fs-14);
+  font-weight: 500;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  transition: color 0.15s ease, border-color 0.15s ease;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+
+.nav-tab:hover {
+  color: var(--text);
+}
+
+.nav-tab.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+  font-weight: 600;
+}
+
+.nav-tab i {
+  font-size: var(--fs-12);
+}
+
+/* =========================
+   BUNDLES DASHBOARD
+   ========================= */
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--sp-4);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.bundle-count {
+  font-size: var(--fs-14);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ---------- Filter Bar ---------- */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: flex-end;
+  padding: var(--sp-4);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-bottom: var(--sp-4);
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 150px;
+}
+
+.filter-group label {
+  font-size: var(--fs-11);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.filter-group input,
+.filter-group select {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  font-size: var(--fs-12);
+  font-family: inherit;
+  background: var(--panel);
+  color: var(--text);
+  min-width: 140px;
+}
+
+.filter-group input:focus,
+.filter-group select:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.btn-sm {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-12);
+}
+
+/* ---------- Table Wrapper ---------- */
+.table-wrapper {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow-x: auto;
+}
+
+/* ---------- Bundles Table ---------- */
+.bundles-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-12);
+  min-width: 1200px;
+}
+
+.bundles-table th {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--fs-11);
+  font-weight: 700;
+  color: var(--muted);
+  text-align: left;
+  padding: var(--sp-3) var(--sp-3);
+  background: var(--subtle-2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.bundles-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.bundles-table th.sortable:hover {
+  background: var(--subtle);
+}
+
+.bundles-table th i {
+  margin-left: var(--sp-1);
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.bundles-table td {
+  padding: var(--sp-3) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  color: var(--text);
+}
+
+.bundles-table tbody tr {
+  transition: background 0.1s ease;
+}
+
+.bundles-table tbody tr:hover {
+  background: var(--subtle-2);
+}
+
+.bundles-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------- Table Cell Types ---------- */
+.bundle-name {
+  font-weight: 600;
+  max-width: 200px;
+}
+
+.bundle-link {
+  color: var(--brand);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  transition: color 0.15s ease;
+}
+
+.bundle-link:hover {
+  color: var(--brand-700);
+  text-decoration: underline;
+}
+
+.bundle-link .external-icon {
+  font-size: 9px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.bundle-link:hover .external-icon {
+  opacity: 0.6;
+}
+
+.project-link {
+  color: var(--muted);
+  font-size: var(--fs-11);
+}
+
+.date-cell {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.stage-name-cell {
+  font-size: var(--fs-11);
+  color: var(--muted);
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Badges ---------- */
+.stage-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-11);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stage-badge.active {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+.stage-badge.complete {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.policy-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-11);
+  font-weight: 500;
+  background: var(--pill-bg);
+  color: var(--pill-fg);
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Assignee Cells ---------- */
+.assignee-cell {
+  position: relative;
+}
+
+.assignee-name {
+  font-size: var(--fs-12);
+}
+
+.stage-assignee-display {
+  font-size: var(--fs-11);
+  color: var(--text);
+}
+
+.stage-assignee-display.unassigned {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ---------- Empty & Loading States ---------- */
+.empty-state {
+  text-align: center;
+  padding: var(--sp-8) !important;
+}
+
+.empty-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--muted);
+}
+
+.empty-message i {
+  font-size: 32px;
+  opacity: 0.4;
+}
+
+.empty-message p {
+  font-size: var(--fs-14);
+  margin: 0;
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8);
+  color: var(--muted);
+  font-size: var(--fs-14);
+}
+
+.loading-state .spinner {
+  border-color: var(--border);
+  border-top-color: var(--brand);
+}
+
+/* ---------- Responsive Bundles Table ---------- */
+@media (max-width: 1400px) {
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-group {
+    min-width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-3);
+  }
+
+  .nav-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-tab {
+    white-space: nowrap;
+  }
+}
