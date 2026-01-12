@@ -6,7 +6,7 @@ set -euo pipefail
 #   or: bash app.sh 8501
 
 PORT="${PORT:-${1:-8888}}"
-DOMINO_DOMAIN="${DOMINO_DOMAIN:-https://ksm.domino.tech}"
+DOMINO_DOMAIN="${DOMINO_DOMAIN:-https://govqcexploratory.domino.tech}"
 
 echo "========================================="
 echo "Starting Flask application"
