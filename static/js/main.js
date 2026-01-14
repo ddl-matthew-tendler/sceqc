@@ -1147,22 +1147,36 @@ async function fetchUsers() {
 }
 
 // Update assignee for a bundle stage
-async function updateStageAssignee(bundleId, stageId, userId) {
+async function updateStageAssignee(bundleId, stageId, userId, userName) {
     try {
         const basePath = window.location.pathname.replace(/\/$/, '');
+        const payload = (userId && userName) ? {
+            assigneeId: userId,
+            assigneeName: userName
+        } : {
+            assigneeId: null,
+            assigneeName: null
+        };
+
+        console.log(`Updating assignee for bundle ${bundleId}, stage ${stageId}:`, payload);
+
         const response = await fetch(`${basePath}/api/bundles/${bundleId}/stages/${stageId}/assignee`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ assigneeId: userId || null })
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to update assignee: ${response.status}`);
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            console.error('Failed to update assignee:', response.status, errorData);
+            throw new Error(errorData.error || `Failed to update assignee: ${response.status}`);
         }
 
-        return await response.json();
+        const result = await response.json();
+        console.log('Successfully updated assignee:', result);
+        return result;
     } catch (error) {
         console.error('Error updating assignee:', error);
         throw error;
@@ -1202,13 +1216,13 @@ function showAssigneeDropdown(event, bundleId, stageId, currentAssigneeId) {
         </div>
         <div class="dropdown-options">
             <div class="dropdown-option ${!currentAssigneeId ? 'selected' : ''}"
-                 onclick="selectAssignee('${bundleId}', '${stageId}', null)">
+                 onclick="selectAssignee('${bundleId}', '${stageId}', null, null)">
                 <span class="option-name">Unassigned</span>
             </div>
             ${sortedUsers.map(user => `
                 <div class="dropdown-option ${user.id === currentAssigneeId ? 'selected' : ''}"
                      data-user-name="${escapeHtml((user.fullName || user.username || '').toLowerCase())}"
-                     onclick="selectAssignee('${bundleId}', '${stageId}', '${user.id}')">
+                     onclick="selectAssignee('${bundleId}', '${stageId}', '${user.id}', '${escapeHtml(user.username)}')">
                     <span class="option-name">${escapeHtml(user.fullName || user.username)}</span>
                     <span class="option-username">@${escapeHtml(user.username)}</span>
                 </div>
@@ -1253,7 +1267,7 @@ function closeAssigneeDropdown() {
 }
 
 // Select assignee and update via API
-async function selectAssignee(bundleId, stageId, userId) {
+async function selectAssignee(bundleId, stageId, userId, userName) {
     const dropdown = document.getElementById('active-assignee-dropdown');
     if (dropdown) {
         // Show loading state
@@ -1261,7 +1275,8 @@ async function selectAssignee(bundleId, stageId, userId) {
     }
 
     try {
-        await updateStageAssignee(bundleId, stageId, userId);
+        console.log(`Selecting assignee: userId=${userId}, userName=${userName}`);
+        await updateStageAssignee(bundleId, stageId, userId, userName);
 
         // Refresh bundles to show updated data
         closeAssigneeDropdown();
@@ -1269,6 +1284,7 @@ async function selectAssignee(bundleId, stageId, userId) {
 
     } catch (error) {
         closeAssigneeDropdown();
+        console.error('Failed to update assignee:', error);
         alert(`Failed to update assignee: ${error.message}`);
     }
 }
@@ -1776,6 +1792,181 @@ function initializeRegisterView() {
 }
 
 // ==========================================
+// DEBUG PANEL FUNCTIONS
+// ==========================================
+
+let debugPanelOpen = false;
+
+async function toggleDebugPanel() {
+    debugPanelOpen = !debugPanelOpen;
+    const panel = document.getElementById('debug-panel');
+
+    if (debugPanelOpen) {
+        if (!panel) {
+            createDebugPanel();
+        } else {
+            panel.style.display = 'block';
+        }
+        await refreshDebugInfo();
+    } else {
+        if (panel) {
+            panel.style.display = 'none';
+        }
+    }
+}
+
+function createDebugPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'debug-panel';
+    panel.className = 'debug-panel';
+    panel.innerHTML = `
+        <div class="debug-header">
+            <h3>Debug Panel</h3>
+            <button onclick="toggleDebugPanel()" class="btn-close">&times;</button>
+        </div>
+        <div class="debug-content">
+            <div class="debug-section">
+                <h4>Console Logs</h4>
+                <div id="debug-console" class="debug-console"></div>
+                <button onclick="clearDebugConsole()" class="btn btn-sm btn-secondary">Clear</button>
+            </div>
+            <div class="debug-section">
+                <h4>Configuration</h4>
+                <pre id="debug-config" class="debug-output">Loading...</pre>
+            </div>
+            <div class="debug-section">
+                <h4>Connection Tests</h4>
+                <div class="debug-tests">
+                    <button onclick="testConnection('policies')" class="btn btn-sm">Test Policies API</button>
+                    <button onclick="testConnection('bundles')" class="btn btn-sm">Test Bundles API</button>
+                    <button onclick="testConnection('users')" class="btn btn-sm">Test Users API</button>
+                </div>
+                <pre id="debug-test-result" class="debug-output"></pre>
+            </div>
+            <div class="debug-section">
+                <h4>App State</h4>
+                <pre id="debug-state" class="debug-output"></pre>
+                <button onclick="refreshDebugInfo()" class="btn btn-sm">Refresh</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(panel);
+
+    // Intercept console.log and console.error
+    interceptConsole();
+}
+
+function interceptConsole() {
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    console.log = function(...args) {
+        addToDebugConsole('log', args);
+        originalLog.apply(console, args);
+    };
+
+    console.error = function(...args) {
+        addToDebugConsole('error', args);
+        originalError.apply(console, args);
+    };
+
+    console.warn = function(...args) {
+        addToDebugConsole('warn', args);
+        originalWarn.apply(console, args);
+    };
+}
+
+function addToDebugConsole(type, args) {
+    const consoleEl = document.getElementById('debug-console');
+    if (!consoleEl) return;
+
+    const message = args.map(arg => {
+        if (typeof arg === 'object') {
+            try {
+                return JSON.stringify(arg, null, 2);
+            } catch (e) {
+                return String(arg);
+            }
+        }
+        return String(arg);
+    }).join(' ');
+
+    const entry = document.createElement('div');
+    entry.className = `console-entry console-${type}`;
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    consoleEl.appendChild(entry);
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+
+    // Keep only last 100 entries
+    while (consoleEl.children.length > 100) {
+        consoleEl.removeChild(consoleEl.firstChild);
+    }
+}
+
+function clearDebugConsole() {
+    const consoleEl = document.getElementById('debug-console');
+    if (consoleEl) {
+        consoleEl.innerHTML = '';
+    }
+}
+
+async function refreshDebugInfo() {
+    try {
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        const response = await fetch(`${basePath}/api/debug/info`);
+        const data = await response.json();
+
+        const configEl = document.getElementById('debug-config');
+        if (configEl) {
+            configEl.textContent = JSON.stringify(data, null, 2);
+        }
+
+        const stateEl = document.getElementById('debug-state');
+        if (stateEl) {
+            const state = {
+                bundles: appState.bundles.length,
+                users: appState.users.length,
+                policies: appState.policyList.length,
+                currentView: appState.currentView,
+                filters: appState.bundleFilters
+            };
+            stateEl.textContent = JSON.stringify(state, null, 2);
+        }
+    } catch (error) {
+        console.error('Failed to refresh debug info:', error);
+    }
+}
+
+async function testConnection(endpoint) {
+    const resultEl = document.getElementById('debug-test-result');
+    if (resultEl) {
+        resultEl.textContent = 'Testing...';
+    }
+
+    try {
+        const basePath = window.location.pathname.replace(/\/$/, '');
+        const response = await fetch(`${basePath}/api/debug/test-connection`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint })
+        });
+        const data = await response.json();
+
+        if (resultEl) {
+            resultEl.textContent = JSON.stringify(data, null, 2);
+        }
+
+        console.log(`Connection test for ${endpoint}:`, data);
+    } catch (error) {
+        if (resultEl) {
+            resultEl.textContent = `Error: ${error.message}`;
+        }
+        console.error('Connection test failed:', error);
+    }
+}
+
+// ==========================================
 // APP INITIALIZATION
 // ==========================================
 
@@ -1795,6 +1986,10 @@ function initializeApp() {
                     data-view="register"
                     onclick="switchView('register')">
                 <i class="fas fa-plus-circle"></i> Register AI Use Case
+            </button>
+            <button class="nav-tab debug-tab"
+                    onclick="toggleDebugPanel()">
+                <i class="fas fa-bug"></i> Debug
             </button>
         </div>
     `;

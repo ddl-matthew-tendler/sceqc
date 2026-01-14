@@ -196,24 +196,41 @@ def update_stage_assignee(bundle_id, stage_id):
     try:
         data = request.get_json() or {}
         assignee_id = data.get('assigneeId')
+        assignee_name = data.get('assigneeName')
 
-        # Build the API URL - this may need adjustment based on the actual API
-        url = f"https://{DOMINO_DOMAIN}/api/governance/v1/bundles/{bundle_id}/stages/{stage_id}/assignee"
+        # Build the API URL - using PATCH to /bundles/{id}/stages/{id} (not /assignee)
+        url = f"https://{DOMINO_DOMAIN}/api/governance/v1/bundles/{bundle_id}/stages/{stage_id}"
         headers = {
             'X-Domino-Api-Key': DOMINO_API_KEY,
             'accept': 'application/json',
             'Content-Type': 'application/json'
         }
 
-        payload = {"assigneeId": assignee_id} if assignee_id else {"assigneeId": None}
+        # Payload format: {"assignee": {"id": "...", "name": "..."}} or {"assignee": null}
+        if assignee_id and assignee_name:
+            payload = {
+                "assignee": {
+                    "id": assignee_id,
+                    "name": assignee_name
+                }
+            }
+        else:
+            payload = {"assignee": None}
 
-        logger.info(f"Updating assignee for bundle {bundle_id}, stage {stage_id}")
-        response = requests.put(url, headers=headers, json=payload, timeout=30)
+        logger.info(f"Updating assignee for bundle {bundle_id}, stage {stage_id} to: {payload}")
+
+        # Use PATCH instead of PUT
+        response = requests.patch(url, headers=headers, json=payload, timeout=30)
 
         if not response.ok:
-            logger.error(f"Failed to update assignee: {response.status_code}")
-            return jsonify({"error": f"Failed to update assignee: {response.status_code}"}), response.status_code
+            error_text = response.text
+            logger.error(f"Failed to update assignee: {response.status_code}, Response: {error_text}")
+            return jsonify({
+                "error": f"Failed to update assignee: {response.status_code}",
+                "details": error_text
+            }), response.status_code
 
+        logger.info(f"Successfully updated assignee for bundle {bundle_id}, stage {stage_id}")
         return jsonify(response.json() if response.content else {"success": True})
 
     except requests.RequestException as e:
@@ -226,38 +243,117 @@ def update_stage_assignee(bundle_id, stage_id):
 
 @app.route("/api/users", methods=["GET"])
 def get_users():
-    """Fetch all users from the Domino API for assignee dropdowns."""
+    """Fetch project collaborators from the Domino API for assignee dropdowns."""
     try:
-        url = f"https://{DOMINO_DOMAIN}/admin/user-management/users"
+        if not DOMINO_PROJECT_ID:
+            logger.error("DOMINO_PROJECT_ID not set")
+            return jsonify({"error": "Project ID not configured"}), 500
+
+        url = f"https://{DOMINO_DOMAIN}/v4/projects/{DOMINO_PROJECT_ID}/collaborators"
         headers = {
             'X-Domino-Api-Key': DOMINO_API_KEY,
             'accept': 'application/json'
         }
 
-        # Fetch with a high limit to get all users
+        # Get only users (not organizations)
         params = {
-            'limit': 500,
-            'offset': 0
+            'getUsers': True
         }
 
-        logger.info(f"Fetching users from: {url}")
+        logger.info(f"Fetching project collaborators from: {url}")
         response = requests.get(url, headers=headers, params=params, timeout=30)
 
         if not response.ok:
-            logger.error(f"Failed to fetch users: {response.status_code}")
-            return jsonify({"error": f"Failed to fetch users: {response.status_code}"}), response.status_code
+            logger.error(f"Failed to fetch project collaborators: {response.status_code}")
+            return jsonify({"error": f"Failed to fetch project collaborators: {response.status_code}"}), response.status_code
 
-        data = response.json()
-        users = data.get('users', [])
-        logger.info(f"Successfully fetched {len(users)} users")
+        collaborators = response.json()
+        logger.info(f"Successfully fetched {len(collaborators)} project collaborators")
+
+        # Transform the response to match the expected format
+        # The collaborators endpoint returns Person objects with fields like: id, userName, firstName, lastName, etc.
+        users = []
+        for person in collaborators:
+            user = {
+                'id': person.get('id'),
+                'username': person.get('userName'),
+                'fullName': f"{person.get('firstName', '')} {person.get('lastName', '')}".strip() or person.get('userName')
+            }
+            users.append(user)
+
         return jsonify({"users": users})
 
     except requests.RequestException as e:
-        logger.error(f"Error fetching users: {e}")
-        return jsonify({"error": f"Error fetching users: {str(e)}"}), 500
+        logger.error(f"Error fetching project collaborators: {e}")
+        return jsonify({"error": f"Error fetching project collaborators: {str(e)}"}), 500
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+
+@app.route("/api/debug/info", methods=["GET"])
+def get_debug_info():
+    """Get debugging information about the app configuration and recent logs."""
+    try:
+        debug_info = {
+            "config": {
+                "DOMINO_DOMAIN": DOMINO_DOMAIN,
+                "DOMINO_PROJECT_ID": DOMINO_PROJECT_ID,
+                "API_KEY_SET": bool(DOMINO_API_KEY),
+                "API_KEY_PREFIX": DOMINO_API_KEY[:10] + "..." if DOMINO_API_KEY else "NOT SET"
+            },
+            "endpoints": {
+                "policies": f"https://{DOMINO_DOMAIN}/api/governance/v1/policy-overviews",
+                "bundles": f"https://{DOMINO_DOMAIN}/api/governance/v1/bundles",
+                "users": f"https://{DOMINO_DOMAIN}/v4/projects/{DOMINO_PROJECT_ID}/collaborators",
+                "update_assignee": f"https://{DOMINO_DOMAIN}/api/governance/v1/bundles/{{bundleId}}/stages/{{stageId}}"
+            },
+            "timestamp": os.popen('date').read().strip()
+        }
+        return jsonify(debug_info)
+    except Exception as e:
+        logger.error(f"Error getting debug info: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/debug/test-connection", methods=["POST"])
+def test_connection():
+    """Test connection to a specific Domino API endpoint."""
+    try:
+        data = request.get_json() or {}
+        endpoint = data.get('endpoint', 'policies')
+
+        if endpoint == 'policies':
+            url = f"https://{DOMINO_DOMAIN}/api/governance/v1/policy-overviews"
+        elif endpoint == 'bundles':
+            url = f"https://{DOMINO_DOMAIN}/api/governance/v1/bundles"
+        elif endpoint == 'users':
+            url = f"https://{DOMINO_DOMAIN}/v4/projects/{DOMINO_PROJECT_ID}/collaborators?getUsers=true"
+        else:
+            return jsonify({"error": "Invalid endpoint"}), 400
+
+        headers = {
+            'X-Domino-Api-Key': DOMINO_API_KEY,
+            'accept': 'application/json'
+        }
+
+        logger.info(f"Testing connection to: {url}")
+        response = requests.get(url, headers=headers, timeout=10)
+
+        result = {
+            "url": url,
+            "status_code": response.status_code,
+            "ok": response.ok,
+            "headers": dict(response.headers),
+            "response_preview": response.text[:500] if response.text else None
+        }
+
+        logger.info(f"Connection test result: {response.status_code}")
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Connection test failed: {e}")
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
 
 
 def safe_domino_config():

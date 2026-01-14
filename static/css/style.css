@@ -1444,3 +1444,147 @@ label.auto-filled {
     white-space: nowrap;
   }
 }
+
+/* ---------- Debug Panel ---------- */
+.debug-panel {
+  position: fixed;
+  top: 60px;
+  right: 0;
+  width: 500px;
+  height: calc(100vh - 60px);
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--subtle-2);
+}
+
+.debug-header h3 {
+  margin: 0;
+  font-size: var(--fs-16);
+  color: var(--text);
+}
+
+.debug-header .btn-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-xs);
+}
+
+.debug-header .btn-close:hover {
+  background: var(--subtle);
+  color: var(--text);
+}
+
+.debug-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-4);
+}
+
+.debug-section {
+  margin-bottom: var(--sp-6);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.debug-section:last-child {
+  border-bottom: none;
+}
+
+.debug-section h4 {
+  margin: 0 0 var(--sp-3) 0;
+  font-size: var(--fs-14);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.debug-console {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: var(--sp-3);
+  border-radius: var(--r-sm);
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: var(--sp-2);
+}
+
+.console-entry {
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.console-log {
+  color: #d4d4d4;
+}
+
+.console-error {
+  color: #f48771;
+}
+
+.console-warn {
+  color: #dcdcaa;
+}
+
+.debug-output {
+  background: var(--subtle-2);
+  padding: var(--sp-3);
+  border-radius: var(--r-sm);
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  margin-bottom: var(--sp-2);
+}
+
+.debug-tests {
+  display: flex;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.debug-tab {
+  margin-left: auto;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.debug-tab:hover {
+  background: color-mix(in srgb, var(--warn-bg) 80%, black);
+}
+
+@media (max-width: 768px) {
+  .debug-panel {
+    width: 100%;
+    top: auto;
+    bottom: 0;
+    height: 50vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
