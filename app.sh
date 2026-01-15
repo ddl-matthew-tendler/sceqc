@@ -8,9 +8,15 @@ set -euo pipefail
 PORT="${PORT:-${1:-8888}}"
 DOMINO_DOMAIN="${DOMINO_DOMAIN:-https://govqcexploratory.domino.tech}"
 
+# Set the correct project ID for the xylo-01 project
+# This is needed for fetching project collaborators for stage assignees
+export DOMINO_PROJECT_ID="${DOMINO_PROJECT_ID:-68470ab2c2df9b0df6eda5d1}"
+
 echo "========================================="
 echo "Starting Flask application"
 echo "Port: ${PORT}"
+echo "Domain: ${DOMINO_DOMAIN}"
+echo "Project ID: ${DOMINO_PROJECT_ID}"
 echo "========================================="
 
 # ------------------------------------------------------------

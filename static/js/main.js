@@ -1132,13 +1132,21 @@ async function fetchBundles() {
 async function fetchUsers() {
     try {
         const basePath = window.location.pathname.replace(/\/$/, '');
-        const response = await fetch(`${basePath}/api/users`);
+        const url = `${basePath}/api/users`;
+        console.log('Fetching users from:', url);
+        const response = await fetch(url);
+
+        console.log('Users API response status:', response.status);
+        console.log('Users API response ok:', response.ok);
 
         if (!response.ok) {
-            throw new Error(`Failed to fetch users: ${response.status}`);
+            const errorText = await response.text();
+            console.error('Users API error response:', errorText);
+            throw new Error(`Failed to fetch users: ${response.status} - ${errorText}`);
         }
 
         const data = await response.json();
+        console.log('Users API response data:', data);
         return data.users || [];
     } catch (error) {
         console.error('Error fetching users:', error);

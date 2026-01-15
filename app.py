@@ -241,10 +241,18 @@ def update_stage_assignee(bundle_id, stage_id):
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
+@app.route("/api/users/test", methods=["GET"])
+def test_users_route():
+    """Simple test endpoint to verify routing works."""
+    return jsonify({"message": "Users route is accessible", "test": True})
+
+
 @app.route("/api/users", methods=["GET"])
 def get_users():
     """Fetch project collaborators from the Domino API for assignee dropdowns."""
     try:
+        logger.info("=== GET /api/users endpoint called ===")
+
         if not DOMINO_PROJECT_ID:
             logger.error("DOMINO_PROJECT_ID not set")
             return jsonify({"error": "Project ID not configured"}), 500
@@ -261,14 +269,22 @@ def get_users():
         }
 
         logger.info(f"Fetching project collaborators from: {url}")
+        logger.info(f"Request params: {params}")
+        logger.info(f"API Key present: {bool(DOMINO_API_KEY)}")
+
         response = requests.get(url, headers=headers, params=params, timeout=30)
+
+        logger.info(f"Response status code: {response.status_code}")
+        logger.info(f"Response headers: {dict(response.headers)}")
 
         if not response.ok:
             logger.error(f"Failed to fetch project collaborators: {response.status_code}")
+            logger.error(f"Response body: {response.text}")
             return jsonify({"error": f"Failed to fetch project collaborators: {response.status_code}"}), response.status_code
 
         collaborators = response.json()
         logger.info(f"Successfully fetched {len(collaborators)} project collaborators")
+        logger.info(f"Raw collaborators data: {collaborators}")
 
         # Transform the response to match the expected format
         # The collaborators endpoint returns Person objects with fields like: id, userName, firstName, lastName, etc.
@@ -281,13 +297,15 @@ def get_users():
             }
             users.append(user)
 
-        return jsonify({"users": users})
+        result = {"users": users}
+        logger.info(f"Returning transformed users: {result}")
+        return jsonify(result)
 
     except requests.RequestException as e:
-        logger.error(f"Error fetching project collaborators: {e}")
+        logger.error(f"Error fetching project collaborators: {e}", exc_info=True)
         return jsonify({"error": f"Error fetching project collaborators: {str(e)}"}), 500
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Unexpected error in get_users: {e}", exc_info=True)
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
